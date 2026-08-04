@@ -150,6 +150,26 @@ def test_disk_admission_limit_rejects_before_creating_bundle(
     assert list((tmp_path / "jobs").iterdir()) == []
 
 
+@pytest.mark.parametrize(
+    ("used_fraction", "expected"),
+    [(0.79, True), (0.80, False)],
+)
+def test_storage_admission_threshold_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    used_fraction: float,
+    expected: bool,
+) -> None:
+    store = _store(tmp_path, storage_stop_fraction=0.80)
+    monkeypatch.setattr(
+        store,
+        "storage_usage",
+        lambda: {"used_fraction": used_fraction},
+    )
+
+    assert store.admission_available() is expected
+
+
 def test_cleanup_removes_only_expired_terminal_job_bundle(tmp_path: Path) -> None:
     store = _store(tmp_path, global_queue_limit=3)
     old_id = store.submit("prediction-run", {}, owner="a", config={})
