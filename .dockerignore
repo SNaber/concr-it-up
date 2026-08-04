@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+venv
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+**/build
+**/dist
+**/*.egg-info
+.env
+.env.*
+embeddings/*
+data/uploads/*
+data/generated_scores/*
+configs/user/*

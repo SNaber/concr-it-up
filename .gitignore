@@ -1,0 +1,48 @@
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Build products
+build/
+dist/
+*.egg-info/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.htpasswd
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+*.pem
+*.key
+/deploy/bwcloud/*.env
+!/deploy/bwcloud/*.env.example
+
+# Embeddings are acquired separately
+/embeddings/*
+!/embeddings/.gitkeep
+
+# Runtime data are persistent deployment state, not source files
+/data/*
+!/data/uploads/
+!/data/generated_scores/
+/data/uploads/*
+!/data/uploads/gui/
+/data/uploads/gui/*
+!/data/uploads/gui/.gitkeep
+/data/generated_scores/*
+!/data/generated_scores/.gitkeep
+
+# User-created configurations
+/configs/user/*
+!/configs/user/.gitkeep
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store

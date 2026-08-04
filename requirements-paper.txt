@@ -1,0 +1,26 @@
+# Pinned core-and-GUI package versions used for the paper runs with Python 3.11.
+# Operating-system, BLAS, architecture, and input-resource details are not pinned.
+#
+# Install this file before installing packages/core editable with --no-deps.
+blinker==1.9.0
+click==8.3.3
+fasttext==0.9.3
+Flask==3.1.3
+gensim==4.4.0
+itsdangerous==2.2.0
+Jinja2==3.1.6
+joblib==1.5.3
+MarkupSafe==3.0.3
+numpy==2.4.2
+pandas==3.0.1
+pip==26.0.1
+pybind11==3.0.2
+python-dateutil==2.9.0.post0
+scikit-learn==1.8.0
+scipy==1.17.1
+setuptools==82.0.0
+six==1.17.0
+smart_open==7.5.1
+threadpoolctl==3.6.0
+Werkzeug==3.1.8
+wrapt==2.1.2

@@ -1,0 +1,6 @@
+# Production-server additions to the pinned paper package snapshot.
+-r requirements-paper.txt
+
+gunicorn==23.0.0
+packaging==24.2
+wheel==0.45.1

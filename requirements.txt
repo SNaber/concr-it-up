@@ -1,0 +1,2 @@
+-e ./packages/core
+-r ./apps/core_gui/requirements.txt

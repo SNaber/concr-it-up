@@ -1,0 +1,52 @@
+{
+  "embeddings": [
+    {
+      "id": "arb_space",
+      "kind": "ft_bin",
+      "path": "/opt/concr-it-up/embeddings/cc.ar.300.bin",
+      "label": "Arabic fastText Common Crawl 300d"
+    },
+    {
+      "id": "es_space",
+      "kind": "ft_bin",
+      "path": "/opt/concr-it-up/embeddings/cc.es.300.bin",
+      "label": "Spanish fastText Common Crawl 300d"
+    },
+    {
+      "id": "hr_space",
+      "kind": "ft_bin",
+      "path": "/opt/concr-it-up/embeddings/cc.hr.300.bin",
+      "label": "Croatian fastText Common Crawl 300d"
+    },
+    {
+      "id": "fr_space",
+      "kind": "ft_bin",
+      "path": "/opt/concr-it-up/embeddings/cc.fr.300.bin",
+      "label": "French fastText Common Crawl 300d"
+    },
+    {
+      "id": "de_space",
+      "kind": "ft_bin",
+      "path": "/opt/concr-it-up/embeddings/cc.de.300.bin",
+      "label": "German fastText Common Crawl 300d"
+    },
+    {
+      "id": "pt_space",
+      "kind": "ft_bin",
+      "path": "/opt/concr-it-up/embeddings/cc.pt.300.bin",
+      "label": "Portuguese fastText Common Crawl 300d"
+    },
+    {
+      "id": "en_space",
+      "kind": "ft_bin",
+      "path": "/opt/concr-it-up/embeddings/cc.en.300.bin",
+      "label": "English fastText Common Crawl 300d"
+    },
+    {
+      "id": "nl_space",
+      "kind": "ft_bin",
+      "path": "/opt/concr-it-up/embeddings/cc.nl.300.bin",
+      "label": "Dutch fastText Common Crawl 300d"
+    }
+  ]
+}

@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content="{{ csrf_token }}" />
+    <title>KNN-ConcrItUp</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <header class="hero">
+      <div>
+        <h1>KNN-ConcrItUp</h1>
+        <p>Live-config control panel</p>
+      </div>
+    </header>
+
+    <section class="panel session-bar" id="sessionBar">
+      <div id="commandControls" class="command-controls">
+        <div class="row wrap">
+          <button id="btnRunPrediction" type="button">Run Prediction</button>
+          <div class="view-switch" role="group" aria-label="View switch">
+            <button id="btnShowEditor" type="button" class="secondary">Editor</button>
+            <button id="btnShowResults" type="button" class="secondary">Results</button>
+          </div>
+        </div>
+      </div>
+
+      <details class="session-browser config-tools">
+        <summary>Config Tools</summary>
+        <p id="editorSessionState" class="session-state">No config is open.</p>
+
+        <div class="row wrap">
+          <button id="btnNewConfig" type="button">New Config</button>
+          <button id="btnCloseConfig" type="button" class="secondary" disabled>Close Config</button>
+          <label class="upload">
+            <input id="uploadConfigInput" type="file" accept="application/json,.json" />
+            <span>Upload JSON</span>
+          </label>
+          <button id="btnDownloadConfig" type="button" class="secondary" disabled>Download JSON</button>
+        </div>
+
+        <div class="row">
+          <label for="configPath">Repo JSON Path</label>
+          <input id="configPath" placeholder="configs/my_prediction.json" />
+          <button id="btnLoadConfig" type="button">Load</button>
+          <button id="btnSaveConfig" type="button" class="secondary" disabled>Save</button>
+        </div>
+
+        <details class="session-browser nested-browser">
+          <summary>Browse Repository</summary>
+          <div class="row">
+            <label for="browsePath">Browse Repo Path</label>
+            <input id="browsePath" value="configs" />
+            <button id="btnBrowse" type="button">List</button>
+          </div>
+          <div id="browseListing" class="listing"></div>
+        </details>
+      </details>
+    </section>
+
+    <main class="layout" id="mainLayout">
+      <section class="panel hidden" id="editorSection">
+        <h2>Core Inputs</h2>
+        <div id="guidedPanel" class="tab-panel active">
+          <div class="grid two">
+            <label class="field-label full">
+              <span class="label-head">gold <button type="button" class="help-trigger" data-help-key="dataset_gold" aria-label="Help">i</button></span>
+              <div class="inline-input-action">
+                <input id="dataset_gold" />
+                <button id="btnUploadGoldCsv" type="button" class="secondary compact">Upload</button>
+              </div>
+              <input id="goldCsvUploadInput" class="inline-file-input" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" />
+              <span class="field-hint">Add gold file (CSV/TSV); set word/score columns.</span>
+            </label>
+            <label class="field-label">
+              <span class="label-head">word_column <button type="button" class="help-trigger" data-help-key="dataset_word_column" aria-label="Help">i</button></span>
+              <input id="dataset_word_column" />
+            </label>
+            <label class="field-label">
+              <span class="label-head">score_column <button type="button" class="help-trigger" data-help-key="dataset_score_column" aria-label="Help">i</button></span>
+              <input id="dataset_score_column" />
+            </label>
+            <label class="field-label full">
+              <span class="label-head">existing embedding</span>
+              <div class="inline-input-action">
+                <select id="embExistingSelect">
+                  <option value="">Select existing embedding...</option>
+                </select>
+                <button id="btnRefreshEmbeddings" type="button" class="secondary compact">Refresh</button>
+              </div>
+              <span class="field-hint">Select embedding file or type a path.</span>
+            </label>
+            <label class="field-label">
+              <span class="label-head">embedding path <button type="button" class="help-trigger" data-help-key="space_path" aria-label="Help">i</button></span>
+              <input id="emb_single_path" />
+            </label>
+            <label class="field-label">
+              <span class="label-head">embedding kind <button type="button" class="help-trigger" data-help-key="space_kind" aria-label="Help">i</button></span>
+              <select id="emb_single_kind">
+                <option value="ft_bin">ft_bin</option>
+                <option value="vec">vec</option>
+              </select>
+            </label>
+            <label class="field-label full">
+              <span class="label-head">target <button type="button" class="help-trigger" data-help-key="prediction_target" aria-label="Help">i</button></span>
+              <div class="inline-input-action">
+                <input id="prediction_target" />
+                <button id="btnUploadPredictVocab" type="button" class="secondary compact">Upload</button>
+              </div>
+              <input id="predictVocabUploadInput" class="inline-file-input" type="file" accept=".txt,.csv,.tsv,text/plain,text/csv" />
+              <span class="field-hint">Add targets file (one token per line).</span>
+            </label>
+          </div>
+
+          <details id="advancedConfig" class="advanced-config">
+            <summary>Advanced</summary>
+
+            <h3>Dataset</h3>
+            <div class="grid two">
+              <label class="field-label checkbox-row">
+                <span class="label-head">lowercase <button type="button" class="help-trigger" data-help-key="dataset_lowercase" aria-label="Help">i</button></span>
+                <input id="dataset_lowercase" type="checkbox" />
+              </label>
+            </div>
+
+            <h3>POS Filter</h3>
+            <div class="grid two">
+              <label class="field-label checkbox-row">
+                <span class="label-head">enabled <button type="button" class="help-trigger" data-help-key="pos_enabled" aria-label="Help">i</button></span>
+                <input id="pos_enabled" type="checkbox" />
+              </label>
+              <label class="field-label">
+                <span class="label-head">pos_column <button type="button" class="help-trigger" data-help-key="pos_column" aria-label="Help">i</button></span>
+                <input id="pos_column" />
+              </label>
+              <label class="field-label">
+                <span class="label-head">tags (comma-separated) <button type="button" class="help-trigger" data-help-key="pos_tags" aria-label="Help">i</button></span>
+                <input id="pos_tags" />
+              </label>
+              <label class="field-label">
+                <span class="label-head">match_mode <button type="button" class="help-trigger" data-help-key="pos_match_mode" aria-label="Help">i</button></span>
+                <select id="pos_match_mode">
+                  <option value="exact">exact</option>
+                  <option value="token_contains">token_contains</option>
+                </select>
+              </label>
+              <label class="field-label full">
+                <span class="label-head">token_pattern <button type="button" class="help-trigger" data-help-key="pos_token_pattern" aria-label="Help">i</button></span>
+                <input id="pos_token_pattern" />
+              </label>
+            </div>
+
+            <h3>Runtime</h3>
+            <div class="grid three">
+              <label class="field-label">
+                <span class="label-head">output_dir <button type="button" class="help-trigger" data-help-key="runtime_output_dir" aria-label="Help">i</button></span>
+                <input id="runtime_output_dir" />
+              </label>
+              <label class="field-label">
+                <span class="label-head">seed <button type="button" class="help-trigger" data-help-key="runtime_seed" aria-label="Help">i</button></span>
+                <input id="runtime_seed" type="number" />
+              </label>
+              <label class="field-label">
+                <span class="label-head">n_jobs <button type="button" class="help-trigger" data-help-key="runtime_n_jobs" aria-label="Help">i</button></span>
+                <input id="runtime_n_jobs" type="number" />
+              </label>
+            </div>
+
+            <h3>Prediction</h3>
+            <div class="grid three">
+              <label class="field-label">
+                <span class="label-head">test_size <button type="button" class="help-trigger" data-help-key="prediction_test_size" aria-label="Help">i</button></span>
+                <input id="prediction_test_size" type="number" step="0.01" min="0" max="1" />
+              </label>
+              <label class="field-label">
+                <span class="label-head">cv_folds <button type="button" class="help-trigger" data-help-key="prediction_cv_folds" aria-label="Help">i</button></span>
+                <input id="prediction_cv_folds" type="number" min="2" />
+              </label>
+              <label class="field-label">
+                <span class="label-head">topn_neighbors <button type="button" class="help-trigger" data-help-key="prediction_topn_neighbors" aria-label="Help">i</button></span>
+                <input id="prediction_topn_neighbors" type="number" min="1" />
+              </label>
+              <label class="field-label">
+                <span class="label-head">k_min <button type="button" class="help-trigger" data-help-key="prediction_k_min" aria-label="Help">i</button></span>
+                <input id="prediction_k_min" type="number" min="1" />
+              </label>
+              <label class="field-label">
+                <span class="label-head">k_max <button type="button" class="help-trigger" data-help-key="prediction_k_max" aria-label="Help">i</button></span>
+                <input id="prediction_k_max" type="number" min="1" />
+              </label>
+              <label class="field-label">
+                <span class="label-head">k_step <button type="button" class="help-trigger" data-help-key="prediction_k_step" aria-label="Help">i</button></span>
+                <input id="prediction_k_step" type="number" min="1" />
+              </label>
+            </div>
+
+            <h3>Reports</h3>
+            <label class="field-label">
+              <span class="label-head">level <button type="button" class="help-trigger" data-help-key="reports_level" aria-label="Help">i</button></span>
+              <select id="reports_level">
+                <option value="core">core</option>
+                <option value="full">full</option>
+              </select>
+            </label>
+          </details>
+        </div>
+      </section>
+
+      <section class="panel" id="runPanel">
+        <h2>Results And Monitoring</h2>
+
+        <div id="workingIndicator" class="working-indicator hidden">
+          <span id="workingBadge" class="badge">IDLE</span>
+          <span id="workingSpinner" class="spinner hidden" aria-hidden="true"></span>
+          <span id="workingElapsed">0s</span>
+          <span id="workingLatestLog">No active job.</span>
+        </div>
+
+        <details class="logs-box">
+          <summary>Job Details</summary>
+          <pre id="jobStatus">No jobs submitted yet.</pre>
+        </details>
+
+        <div id="resultsPanel" class="results-panel">
+          <div class="row wrap">
+            <h3>Latest Completed Job</h3>
+            <button id="btnRefreshResults" type="button" class="secondary">Refresh</button>
+          </div>
+          <div id="resultsMeta" class="results-meta">No completed jobs yet.</div>
+
+          <div class="row">
+            <label for="resultArtifactSelect">Artifact</label>
+            <select id="resultArtifactSelect" disabled></select>
+          </div>
+
+          <div class="row" id="resultSearchRow">
+            <label for="resultSearchQuery">Search</label>
+            <input id="resultSearchQuery" placeholder="case-insensitive substring" />
+            <button id="btnSearchArtifact" type="button" disabled>Search</button>
+          </div>
+
+          <div class="row wrap" id="resultPagingRow">
+            <button id="btnPrevPage" type="button" class="secondary" disabled>Prev</button>
+            <span id="resultPagingInfo">0-0</span>
+            <button id="btnNextPage" type="button" class="secondary" disabled>Next</button>
+            <button id="btnDownloadArtifact" type="button" class="secondary" disabled>Download</button>
+            <button id="btnCopyArtifactPath" type="button" class="secondary" disabled>Copy Path</button>
+          </div>
+
+          <div id="resultPath" class="result-path">No artifact selected.</div>
+          <p class="result-note">
+            <code>neighbor_cosine_distances</code> values are cosine distances computed as
+            <code>1 - cosine_similarity</code> (<code>0</code> means most similar direction; larger means less similar).
+          </p>
+          <div id="resultPreview" class="result-preview">No preview loaded.</div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p id="flashMessage" aria-live="polite"></p>
+    </footer>
+
+    <div id="helpPopover" class="help-popover hidden" role="dialog" aria-live="polite"></div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>

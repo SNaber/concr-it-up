@@ -1,0 +1,9 @@
+language,config,gold_seed_resource,embedding_filename,n_gold,n_train,n_test,best_k,test_spearman,scale,test_rmse
+Arabic,arabic.json,"Arabic noun concreteness norms (Aziz, 2025)",cc.ar.300.bin,214,171,43,25,0.795,1-5,0.493
+Spanish,spanish.json,"Spanish ANEW (Redondo et al., 2007)",cc.es.300.bin,612,489,123,65,0.761,1-7,0.724
+Croatian,croatian.json,"Croatian psycholinguistic norms (Peti Stantić et al., 2018)",cc.hr.300.bin,1000,800,200,40,0.790,1-5,0.627
+French,french.json,"French concreteness norms (Bonin et al., 2018)",cc.fr.300.bin,1659,1327,332,20,0.854,1-5,0.533
+German,german.json,"German noun norms (Lahl et al., 2009)",cc.de.300.bin,2654,2123,531,30,0.863,1-10,0.927
+Portuguese,portuguese.json,"Minho Word Pool (Soares et al., 2017)",cc.pt.300.bin,3342,2673,669,35,0.874,1-7,0.624
+English,english.json,"English concreteness norms (Brysbaert et al., 2014b)",cc.en.300.bin,13132,10505,2627,40,0.882,1-5,0.476
+Dutch,dutch.json,"Dutch AoA/concreteness norms (Brysbaert et al., 2014a)",cc.nl.300.bin,30009,24007,6002,15,0.867,1-5,0.504

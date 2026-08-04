@@ -1,0 +1,53 @@
+[Unit]
+Description=KNN-ConcrItUp durable prediction worker
+After=network.target local-fs.target
+RequiresMountsFor=/opt/concr-it-up/data /opt/concr-it-up/embeddings /opt/concr-it-up/configs/user
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=concritup
+Group=concritup
+WorkingDirectory=/opt/concr-it-up
+EnvironmentFile=/etc/concr-it-up/concr-it-up.env
+ExecStart=/opt/concr-it-up/.venv/bin/python -m apps.core_gui.worker
+KillSignal=SIGTERM
+TimeoutStopSec=300
+Restart=on-failure
+RestartSec=5
+UMask=0027
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+
+# Bounds sized for a 16 GB VM. The remaining memory is reserved for the OS,
+# Nginx, Gunicorn, SQLite, and filesystem cache.
+CPUQuota=400%
+MemoryHigh=11G
+MemoryMax=13G
+MemorySwapMax=1G
+TasksMax=128
+LimitNOFILE=4096
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/opt/concr-it-up/embeddings
+ReadWritePaths=/opt/concr-it-up/data /opt/concr-it-up/configs/user
+
+[Install]
+WantedBy=multi-user.target

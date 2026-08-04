@@ -1,0 +1,49 @@
+{
+  "dataset": {
+    "gold": "data/paper_runs/german/gold.tsv",
+    "lowercase": false,
+    "pos_filter": {
+      "enabled": false,
+      "pos_column": "Dom_Pos",
+      "tags": [
+        "Noun"
+      ],
+      "match_mode": "exact",
+      "token_pattern": "[,;/| ]+"
+    },
+    "score_column": "score",
+    "word_column": "word"
+  },
+  "embeddings": {
+    "active_space": "de_space",
+    "mode": "single",
+    "spaces": [
+      {
+        "id": "de_space",
+        "kind": "ft_bin",
+        "path": "embeddings/cc.de.300.bin",
+        "label": "de_space"
+      }
+    ]
+  },
+  "model": {
+    "kind": "knn"
+  },
+  "prediction": {
+    "cv_folds": 5,
+    "k_max": 100,
+    "k_min": 5,
+    "k_step": 5,
+    "target": "data/paper_runs/german/targets.txt",
+    "test_size": 0.2,
+    "topn_neighbors": 10
+  },
+  "reports": {
+    "level": "full"
+  },
+  "runtime": {
+    "n_jobs": -1,
+    "output_dir": "data/generated_scores/paper_runs/german",
+    "seed": 13
+  }
+}

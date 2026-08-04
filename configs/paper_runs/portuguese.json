@@ -1,0 +1,49 @@
+{
+  "dataset": {
+    "gold": "data/paper_runs/portuguese/gold.tsv",
+    "word_column": "word",
+    "score_column": "score",
+    "lowercase": true,
+    "pos_filter": {
+      "enabled": true,
+      "pos_column": "pos",
+      "tags": [
+        "N"
+      ],
+      "match_mode": "token_contains",
+      "token_pattern": "[,;/| ]+"
+    }
+  },
+  "embeddings": {
+    "mode": "single",
+    "active_space": "pt_space",
+    "spaces": [
+      {
+        "id": "pt_space",
+        "kind": "ft_bin",
+        "path": "embeddings/cc.pt.300.bin",
+        "label": "pt_space"
+      }
+    ]
+  },
+  "model": {
+    "kind": "knn"
+  },
+  "runtime": {
+    "seed": 13,
+    "n_jobs": -1,
+    "output_dir": "data/generated_scores/paper_runs/portuguese"
+  },
+  "prediction": {
+    "test_size": 0.2,
+    "cv_folds": 5,
+    "k_min": 5,
+    "k_max": 100,
+    "k_step": 5,
+    "topn_neighbors": 10,
+    "target": "data/paper_runs/portuguese/targets.txt"
+  },
+  "reports": {
+    "level": "full"
+  }
+}
