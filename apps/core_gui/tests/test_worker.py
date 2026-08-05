@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from apps.core_gui.job_store import SQLiteJobStore
+from apps.core_gui.hosted_config import owner_storage_key
+from apps.core_gui.session_storage import ACTIVITY_FILENAME, acquire_session_storage_lease
 from apps.core_gui.worker import JobWorker, WorkerSettings
 
 
@@ -15,6 +18,7 @@ def _settings(tmp_path: Path, *, entrypoint: str = "fake-core") -> WorkerSetting
         job_root=tmp_path / "jobs",
         entrypoint=entrypoint,
         worker_id="test-worker",
+        session_root=tmp_path / "sessions",
         poll_seconds=0.05,
         lease_seconds=3,
         retention_hours=48,
@@ -78,6 +82,18 @@ def _write_prediction_artifacts(output_dir: Path) -> None:
     )
     (output_dir / "cv_results.csv").write_text("k,weights\n5,distance\n", encoding="utf-8")
     (output_dir / "test_predictions.csv").write_text("word,pred\na,1\n", encoding="utf-8")
+
+
+def test_worker_settings_wires_validated_session_root(tmp_path: Path, monkeypatch) -> None:
+    session_root = tmp_path / "data" / "owner_sessions"
+    monkeypatch.setenv("CONCRITUP_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("CONCRITUP_SESSION_ROOT", str(session_root))
+    monkeypatch.setenv("CONCRITUP_RETENTION_HOURS", "36.5")
+
+    settings = WorkerSettings.from_env()
+
+    assert settings.session_root == session_root.resolve(strict=False)
+    assert settings.retention_hours == 36.5
 
 
 def test_worker_success_writes_manifest_and_completes(tmp_path: Path) -> None:
@@ -167,3 +183,70 @@ def test_worker_environment_forces_single_thread_even_if_parent_is_larger(monkey
     assert environment["OPENBLAS_NUM_THREADS"] == "1"
     assert environment["MKL_NUM_THREADS"] == "1"
     assert environment["SKLEARN_WORKING_MEMORY"] == "256"
+
+
+def test_worker_cleanup_removes_inactive_session_but_preserves_active_owner(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    settings = _settings(tmp_path)
+    store = SQLiteJobStore(settings.db_path, settings.job_root, global_queue_limit=3)
+    active_owner = "active-owner"
+    store.submit("prediction-run", {}, owner=active_owner, config={})
+
+    reference = datetime.now(timezone.utc)
+    inactive_key = owner_storage_key("inactive-owner")
+    active_key = owner_storage_key(active_owner)
+    for key in (inactive_key, active_key):
+        with acquire_session_storage_lease(settings.session_root, key):
+            marker = settings.session_root / key / ACTIVITY_FILENAME
+            timestamp = (reference - timedelta(days=7)).timestamp()
+            os.utime(marker, (timestamp, timestamp))
+
+    monotonic = iter((100.0, 399.0, 400.0))
+    monkeypatch.setattr("apps.core_gui.worker.time.monotonic", lambda: next(monotonic))
+    worker = JobWorker(store, settings)
+
+    first = worker.cleanup_if_due()
+    assert first == [f"session:{inactive_key}"]
+    assert not (settings.session_root / inactive_key).exists()
+    assert (settings.session_root / active_key).is_dir()
+
+    assert worker.cleanup_if_due() == []
+
+    second_key = owner_storage_key("second-inactive")
+    with acquire_session_storage_lease(settings.session_root, second_key):
+        marker = settings.session_root / second_key / ACTIVITY_FILENAME
+        timestamp = (reference - timedelta(days=7)).timestamp()
+        os.utime(marker, (timestamp, timestamp))
+    assert worker.cleanup_if_due() == [f"session:{second_key}"]
+
+
+def test_forced_cleanup_runs_job_and_session_retention_in_one_cycle(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    settings = _settings(tmp_path)
+    store = SQLiteJobStore(settings.db_path, settings.job_root, global_queue_limit=3)
+    monkeypatch.setattr(store, "cleanup_expired", lambda **_kwargs: ["expired-job"])
+    calls: list[dict] = []
+
+    def fake_session_cleanup(_root, **kwargs):
+        calls.append(kwargs)
+        assert callable(kwargs["active_storage_keys_provider"])
+        assert kwargs["active_storage_keys_provider"]() == set()
+        return [owner_storage_key("expired-owner")]
+
+    monkeypatch.setattr(
+        "apps.core_gui.worker.cleanup_expired_session_storage",
+        fake_session_cleanup,
+    )
+    monkeypatch.setattr("apps.core_gui.worker.time.monotonic", lambda: 100.0)
+    worker = JobWorker(store, settings)
+
+    expected = ["expired-job", f"session:{owner_storage_key('expired-owner')}"]
+    assert worker.cleanup_if_due() == expected
+    assert worker.cleanup_if_due() == []
+    assert worker.cleanup_if_due(force=True) == expected
+    assert len(calls) == 2
+    assert all(call["retention_hours"] == 48 for call in calls)

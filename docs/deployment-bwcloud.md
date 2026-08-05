@@ -39,6 +39,42 @@ worker unit constrains memory and CPU use. Hosted requests are additionally
 subject to server-side input, queue, runtime, output, and retention limits.
 Adjusting these values requires testing on the target VM.
 
+## Retention
+
+`CONCRITUP_RETENTION_HOURS` applies to both kinds of user-managed storage:
+
+- terminal job bundles and their database records become eligible that many
+  hours after completion or failure;
+- owner-scoped uploads and saved configurations become eligible after that
+  many hours without a hosted request from the same authenticated identity or
+  anonymous browser session.
+
+The worker checks retention according to
+`CONCRITUP_CLEANUP_INTERVAL_SECONDS`. A currently running model subprocess can
+delay a check until it finishes. Owner directories are locked across the web
+and worker processes, skipped while they have preparing, queued, or running
+work, and renamed to a contained trash directory before deletion. Read-only
+visits do not allocate owner directories. Job submissions copy their inputs
+into the job bundle, so later expiration of the original upload does not alter
+a queued or retained result.
+
+On the first cleanup after upgrading an older deployment, an owner directory
+without activity metadata receives a new activity marker and one complete
+retention period rather than being deleted immediately. Clearing an anonymous
+browser cookie makes that browser lose access to its namespace but does not
+accelerate server-side deletion.
+
+The configured session root is a deletion boundary. It must be a dedicated,
+non-symlinked child of the repository `data/` directory and must not overlap
+the job root or SQLite database path. The web and worker processes must use
+the same session root and retention period.
+
+For an upgrade that changes retention behavior, first drain the queue and stop
+both web and worker services. Make a SQLite-safe database backup and back up
+the owner-session directory, deploy one fixed release to both processes, then
+start the worker and web services from that same release. Do not run old and
+new web/worker code together during the upgrade.
+
 ## Security and operations
 
 Do not expose the Flask development server or the worker directly to the
@@ -48,7 +84,7 @@ administrative network access, apply security updates, and monitor service
 health, memory pressure, disk use, TLS expiry, and repeated job failures.
 
 Anonymous sessions are not user accounts and should not be presented as
-confidential or permanent storage. Publish an appropriate retention policy,
+confidential or permanent storage. Publish the configured retention period,
 test cross-session isolation, and maintain recoverable backups of persistent
 state. Revalidate the synthetic workflow and relevant test suite for every
 deployed release.

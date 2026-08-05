@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import importlib.metadata
 import json
+import math
 import os
 import platform
 import signal
@@ -24,7 +25,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from .hosted_config import owner_storage_key
 from .job_store import ClaimedJob, JobStoreError, SQLiteJobStore, sanitize_public_message
+from .session_storage import cleanup_expired_session_storage, validate_session_root
 
 
 ARTIFACT_FILENAMES: dict[str, str] = {
@@ -51,14 +54,18 @@ MANIFEST_PACKAGES = (
 )
 
 
-def _env_path(name: str, default: Path, *, repo_root: Path) -> Path:
+def _env_absolute_path(name: str, default: Path, *, repo_root: Path) -> Path:
     raw = os.environ.get(name, "").strip()
     if not raw:
-        return default.resolve(strict=False)
+        return default.absolute()
     candidate = Path(raw)
     if not candidate.is_absolute():
         candidate = repo_root / candidate
-    return candidate.resolve(strict=False)
+    return candidate.absolute()
+
+
+def _env_path(name: str, default: Path, *, repo_root: Path) -> Path:
+    return _env_absolute_path(name, default, repo_root=repo_root).resolve(strict=False)
 
 
 def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
@@ -72,8 +79,8 @@ def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
 def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
     raw = os.environ.get(name, "").strip()
     value = default if not raw else float(raw)
-    if value < minimum:
-        raise ValueError(f"{name} must be >= {minimum}.")
+    if not math.isfinite(value) or value < minimum:
+        raise ValueError(f"{name} must be a finite number >= {minimum}.")
     return value
 
 
@@ -86,6 +93,7 @@ class WorkerSettings:
     job_root: Path
     entrypoint: str
     worker_id: str
+    session_root: Path | None = None
     poll_seconds: float = 1.0
     lease_seconds: int = 60
     retention_hours: float = 48.0
@@ -110,6 +118,16 @@ class WorkerSettings:
             repo_root / "data" / "job_queue.sqlite3",
             repo_root=repo_root,
         )
+        session_candidate = _env_absolute_path(
+            "CONCRITUP_SESSION_ROOT",
+            repo_root / "data" / "hosted_sessions",
+            repo_root=repo_root,
+        )
+        session_root = validate_session_root(
+            session_candidate,
+            managed_data_root=repo_root / "data",
+            disallowed_paths=(job_root, db_path),
+        )
         default_entrypoint = repo_root / ".venv" / "bin" / "concreteness-knn-core"
         entrypoint = os.environ.get("CONCRITUP_CORE_ENTRYPOINT", "").strip()
         if not entrypoint:
@@ -126,6 +144,7 @@ class WorkerSettings:
             job_root=job_root,
             entrypoint=entrypoint,
             worker_id=worker_id,
+            session_root=session_root,
             poll_seconds=_env_float("CONCRITUP_WORKER_POLL_SECONDS", 1.0, minimum=0.05),
             lease_seconds=_env_int("CONCRITUP_WORKER_LEASE_SECONDS", 60),
             retention_hours=_env_float("CONCRITUP_RETENTION_HOURS", 48.0),
@@ -483,7 +502,7 @@ class JobWorker:
         self.settings = settings
         self.executor = executor
         self.stop_event = threading.Event()
-        self._last_cleanup = 0.0
+        self._last_cleanup: float | None = None
 
     def command_for(self, job: ClaimedJob) -> list[str]:
         """Build the shell-free core CLI argument vector for a claimed job."""
@@ -696,14 +715,31 @@ class JobWorker:
         return self.store.recover_interrupted_jobs()
 
     def cleanup_if_due(self, *, force: bool = False) -> list[str]:
-        """Run retention cleanup when its monotonic interval has elapsed."""
+        """Run job and owner-session retention when the interval has elapsed."""
 
         now = time.monotonic()
-        if not force and now - self._last_cleanup < self.settings.cleanup_interval_seconds:
+        if (
+            not force
+            and self._last_cleanup is not None
+            and now - self._last_cleanup < self.settings.cleanup_interval_seconds
+        ):
             return []
-        removed = self.store.cleanup_expired(retention_hours=self.settings.retention_hours)
+        removed_jobs = self.store.cleanup_expired(
+            retention_hours=self.settings.retention_hours
+        )
+        removed_sessions: list[str] = []
+        if self.settings.session_root is not None:
+            def active_storage_keys() -> set[str]:
+                return {owner_storage_key(owner) for owner in self.store.active_owners()}
+
+            removed_sessions = cleanup_expired_session_storage(
+                self.settings.session_root,
+                active_storage_keys=active_storage_keys(),
+                active_storage_keys_provider=active_storage_keys,
+                retention_hours=self.settings.retention_hours,
+            )
         self._last_cleanup = now
-        return removed
+        return [*removed_jobs, *(f"session:{key}" for key in removed_sessions)]
 
     def run_forever(self, *, recover: bool = True) -> None:
         """Poll, clean, and execute jobs until cooperative shutdown is requested."""

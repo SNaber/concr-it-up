@@ -569,6 +569,7 @@ def create_app(
         job_root=hosted.job_root,
         entrypoint=entrypoint,
         worker_id=f"embedded-{os.getpid()}-{id(app)}",
+        session_root=hosted.session_root if hosted.enabled else None,
         retention_hours=hosted.limits.retention_hours,
         global_queue_limit=hosted.limits.global_jobs,
         per_owner_queue_limit=hosted.limits.per_owner_jobs,
@@ -689,8 +690,9 @@ def create_app(
         g.concritup_owner = owner
         if hosted.enabled:
             resolver = HostedPathResolver(hosted, owner)
-            resolver.ensure_owner_dirs()
+            session_lease = resolver.acquire_owner_storage(create_owner=False)
             g.concritup_paths = resolver
+            g.concritup_session_lease = session_lease
 
         if hosted.enabled and hosted.access_mode in {"authenticated", "anonymous"}:
             csrf_token = str(session.get("csrf_token", ""))
@@ -702,6 +704,14 @@ def create_app(
                 if not supplied or not hmac.compare_digest(supplied, csrf_token):
                     return ok({"error": "Invalid or missing CSRF token."}, status=403)
         return None
+
+    @app.teardown_request
+    def release_request_session_storage(_error: BaseException | None) -> None:
+        """Release the cross-process owner lock held for one hosted request."""
+
+        lease = getattr(g, "concritup_session_lease", None)
+        if lease is not None:
+            lease.close()
 
     def artifact_alias(job_id: str, artifact_key: str, path: Path) -> str:
         if hosted.enabled:
@@ -916,12 +926,6 @@ def create_app(
             raise GUIError(f"Uploaded files must not exceed {limit // (1024 * 1024)} MiB.", status_code=413)
         return payload
 
-    def save_upload_bytes(uploaded: Any, output_path: Path) -> int:
-        require_storage_admission()
-        payload = read_upload_bytes(uploaded)
-        output_path.write_bytes(payload)
-        return len(payload)
-
     def require_storage_admission() -> None:
         if hosted.enabled and not jobs.admission_available():
             percent = round(hosted.limits.storage_stop_fraction * 100)
@@ -953,6 +957,8 @@ def create_app(
             "index.html",
             repo_root=str(app.config["GUI_REPO_ROOT"]),
             csrf_token=str(session.get("csrf_token", "")),
+            hosted_enabled=hosted.enabled,
+            retention_hours=f"{hosted.limits.retention_hours:g}",
         )
 
     @app.route("/api/config/default", methods=["GET"])
@@ -1009,6 +1015,7 @@ def create_app(
             config = _coerce_config_object(payload.get("config"))
             if hosted.enabled:
                 require_storage_admission()
+                path_resolver().activate_owner_storage()
                 path, response_path = resolve_hosted_config_path(payload.get("path"), for_write=True)
             else:
                 path = _resolve_json_path(
@@ -1080,8 +1087,12 @@ def create_app(
 
             fallback = "gold.csv" if field_target == "gold" else "target.txt"
             safe_name = _sanitize_upload_filename(uploaded.filename, fallback=fallback)
+            payload = read_upload_bytes(uploaded)
+            require_storage_admission()
             if hosted.enabled:
-                upload_dir = path_resolver().upload_root
+                resolver = path_resolver()
+                resolver.activate_owner_storage()
+                upload_dir = resolver.upload_root
             else:
                 upload_dir = _resolve_repo_path(
                     app.config["GUI_REPO_ROOT"],
@@ -1090,7 +1101,7 @@ def create_app(
                 )
             upload_dir.mkdir(parents=True, exist_ok=True)
             output_path = _unique_path_for_write(upload_dir / safe_name)
-            save_upload_bytes(uploaded, output_path)
+            output_path.write_bytes(payload)
             response_path = (
                 path_resolver().alias_for(output_path)
                 if hosted.enabled

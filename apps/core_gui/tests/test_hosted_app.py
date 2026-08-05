@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from apps.core_gui.app import create_app
+from apps.core_gui.hosted_config import owner_storage_key
+from apps.core_gui.session_storage import ACTIVITY_FILENAME, cleanup_expired_session_storage
 from apps.core_gui.worker import JobWorker, WorkerSettings
 
 
@@ -53,7 +57,9 @@ def hosted_app(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CONCRITUP_EMBEDDING_ALLOWLIST", json.dumps(allowlist))
     monkeypatch.setenv("CONCRITUP_JOB_DB", str(tmp_path / "state" / "jobs.sqlite3"))
     monkeypatch.setenv("CONCRITUP_JOB_ROOT", str(tmp_path / "jobs"))
-    monkeypatch.setenv("CONCRITUP_SESSION_ROOT", str(tmp_path / "sessions"))
+    monkeypatch.setenv(
+        "CONCRITUP_SESSION_ROOT", str(tmp_path / "data" / "hosted_sessions")
+    )
     monkeypatch.setenv("CONCRITUP_PAPER_CONFIG_ROOT", str(paper_configs))
 
     return create_app(repo_root=tmp_path, testing=True, start_embedded_worker=False)
@@ -114,6 +120,11 @@ def test_anonymous_cookie_csrf_virtual_paths_and_allowlist(hosted_app):
     assert "Secure" in cookie
     assert "HttpOnly" in cookie
     assert "SameSite=Lax" in cookie
+    rendered = index.get_data(as_text=True)
+    assert 'id="retentionNotice"' in rendered
+    assert "48 hours of inactivity" in rendered
+    assert "48 hours after completion or failure" in rendered
+    assert "Download anything you need to keep" in rendered
 
     rejected = client.post("/api/config/save", base_url=HTTPS_ROOT, json={})
     assert rejected.status_code == 403
@@ -142,6 +153,71 @@ def test_anonymous_cookie_csrf_virtual_paths_and_allowlist(hosted_app):
     )
     assert saved.status_code == 200
     assert saved.get_json()["path"] == "session-config:mine.json"
+
+
+def test_hosted_request_refreshes_owner_storage_activity(hosted_app):
+    client = hosted_app.test_client()
+    csrf = _csrf(client)
+    with client.session_transaction() as browser_session:
+        owner = browser_session["anonymous_owner"]
+
+    hosted = hosted_app.config["HOSTED_SETTINGS"]
+    owner_root = hosted.session_root / owner_storage_key(owner)
+    assert not owner_root.exists()
+
+    uploaded = _post(
+        client,
+        "/api/fs/upload",
+        csrf,
+        data={
+            "field_target": "target",
+            "file": (io.BytesIO(b"a\n"), "target.txt"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert uploaded.status_code == 201
+    marker = owner_root / ACTIVITY_FILENAME
+    old_timestamp = 1_000_000_000
+    os.utime(marker, (old_timestamp, old_timestamp))
+
+    assert client.get("/api/config/default", base_url=HTTPS_ROOT).status_code == 200
+    assert marker.stat().st_mtime > old_timestamp
+
+
+def test_read_only_anonymous_visits_do_not_create_owner_trees(hosted_app) -> None:
+    hosted = hosted_app.config["HOSTED_SETTINGS"]
+    for _ in range(20):
+        assert hosted_app.test_client().get("/", base_url=HTTPS_ROOT).status_code == 200
+
+    owner_trees = [
+        child
+        for child in hosted.session_root.iterdir()
+        if child.is_dir() and re.fullmatch(r"[0-9a-f]{64}", child.name)
+    ]
+    assert owner_trees == []
+
+
+def test_early_csrf_rejection_releases_session_cleanup_lock(hosted_app) -> None:
+    client = hosted_app.test_client()
+    csrf = _csrf(client)
+    _upload_inputs(client, csrf)
+    with client.session_transaction() as browser_session:
+        owner = browser_session["anonymous_owner"]
+    hosted = hosted_app.config["HOSTED_SETTINGS"]
+    key = owner_storage_key(owner)
+    owner_root = hosted.session_root / key
+
+    rejected = client.post("/api/config/save", base_url=HTTPS_ROOT, json={})
+    assert rejected.status_code == 403
+    reference = datetime.now(timezone.utc)
+    stale = (reference - timedelta(days=7)).timestamp()
+    os.utime(owner_root / ACTIVITY_FILENAME, (stale, stale))
+
+    assert cleanup_expired_session_storage(
+        hosted.session_root,
+        retention_hours=48,
+        now=reference,
+    ) == [key]
 
 
 def test_anonymous_jobs_uploads_and_results_are_session_scoped(hosted_app):
@@ -225,6 +301,10 @@ def test_hosted_file_upload_limit_is_enforced(hosted_app):
         content_type="multipart/form-data",
     )
     assert response.status_code == 413
+    with client.session_transaction() as browser_session:
+        owner = browser_session["anonymous_owner"]
+    hosted = hosted_app.config["HOSTED_SETTINGS"]
+    assert not (hosted.session_root / owner_storage_key(owner)).exists()
 
 
 def test_hosted_uploads_and_saved_configs_stop_at_disk_admission_limit(
@@ -256,6 +336,10 @@ def test_hosted_uploads_and_saved_configs_stop_at_disk_admission_limit(
     )
     assert saved.status_code == 409
     assert "80%" in saved.get_json()["error"]
+    with client.session_transaction() as browser_session:
+        owner = browser_session["anonymous_owner"]
+    hosted = hosted_app.config["HOSTED_SETTINGS"]
+    assert not (hosted.session_root / owner_storage_key(owner)).exists()
 
 
 def test_completed_artifacts_and_manifest_remain_owner_scoped_and_path_safe(hosted_app):
@@ -355,7 +439,9 @@ def test_authenticated_staging_requires_proxy_identity_and_csrf(tmp_path: Path, 
     )
     monkeypatch.setenv("CONCRITUP_JOB_DB", str(tmp_path / "jobs.sqlite3"))
     monkeypatch.setenv("CONCRITUP_JOB_ROOT", str(tmp_path / "jobs"))
-    monkeypatch.setenv("CONCRITUP_SESSION_ROOT", str(tmp_path / "sessions"))
+    monkeypatch.setenv(
+        "CONCRITUP_SESSION_ROOT", str(tmp_path / "data" / "hosted_sessions")
+    )
     monkeypatch.setenv("CONCRITUP_PAPER_CONFIG_ROOT", str(paper_root))
     app = create_app(repo_root=tmp_path, testing=True, start_embedded_worker=False)
     client = app.test_client()

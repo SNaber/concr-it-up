@@ -114,6 +114,36 @@ def test_owner_and_global_queue_limits_are_transactional(tmp_path: Path) -> None
         store.submit("prediction-run", {}, owner="c", config={})
 
 
+def test_active_owners_includes_every_active_state_and_excludes_terminal_jobs(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path, global_queue_limit=4)
+    done_id = store.submit("prediction-run", {}, owner="done-owner", config={})
+    running_id = store.submit("prediction-run", {}, owner="running-owner", config={})
+    store.submit("prediction-run", {}, owner="queued-owner", config={})
+    claimed = store.claim_next("worker")
+    assert claimed is not None and claimed.job_id == done_id
+    store.complete(done_id, "worker", {})
+    claimed = store.claim_next("worker")
+    assert claimed is not None and claimed.job_id == running_id
+
+    preparing_paths = store.paths_for(store.new_job_id())
+    store._reserve_row(
+        paths=preparing_paths,
+        command="prediction-run",
+        payload={},
+        owner="preparing-owner",
+        timeout_seconds=60,
+        output_limit_bytes=1_000,
+    )
+
+    assert store.active_owners() == {
+        "preparing-owner",
+        "queued-owner",
+        "running-owner",
+    }
+
+
 def test_restart_marks_running_error_but_leaves_queued(tmp_path: Path) -> None:
     store = _store(tmp_path, global_queue_limit=3)
     running_id = store.submit("prediction-run", {}, owner="a", config={})

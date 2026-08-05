@@ -292,6 +292,7 @@ def test_index_page_contains_core_inputs_and_guided_ui(gui_env):
     assert 'id="embExistingSelect"' in html
     assert 'id="btnUploadGoldCsv"' in html
     assert 'id="btnUploadPredictVocab"' in html
+    assert 'id="retentionNotice"' not in html
     assert "Add gold file (CSV/TSV); set word/score columns." in html
     assert "Select embedding file or type a path." in html
     assert "Add targets file (one token per line)." in html

@@ -259,6 +259,13 @@
     </main>
 
     <footer>
+      {% if hosted_enabled %}
+      <p id="retentionNotice">
+        Temporary storage: uploads and saved configurations expire after {{ retention_hours }} hours of inactivity;
+        job files and records expire {{ retention_hours }} hours after completion or failure.
+        Download anything you need to keep.
+      </p>
+      {% endif %}
       <p id="flashMessage" aria-live="polite"></p>
     </footer>
 

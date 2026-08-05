@@ -513,6 +513,16 @@ class SQLiteJobStore:
 
         return self.count_outstanding(owner=owner) > 0
 
+    def active_owners(self) -> set[str]:
+        """Return distinct owners with preparing, queued, or running work."""
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT DISTINCT owner FROM jobs
+                   WHERE status IN ('preparing','queued','running')"""
+            ).fetchall()
+        return {str(row["owner"]) for row in rows}
+
     def active_job(self, *, owner: str | None = None) -> dict[str, Any] | None:
         """Return the newest public outstanding-job record in scope."""
 

@@ -81,6 +81,73 @@ def _allowlist(tmp_path: Path) -> EmbeddingAllowlist:
     )
 
 
+def test_hosted_settings_reads_shared_retention_hours(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CONCRITUP_HOSTED_MODE", "0")
+    monkeypatch.setenv("CONCRITUP_RETENTION_HOURS", "12.5")
+    monkeypatch.delenv("CONCRITUP_EMBEDDING_ALLOWLIST", raising=False)
+
+    settings = HostedSettings.from_env(repo_root=tmp_path)
+
+    assert settings.limits.retention_hours == 12.5
+
+
+@pytest.mark.parametrize("value", ["-1", "nan", "inf", "not-a-number"])
+def test_hosted_settings_rejects_invalid_retention_hours(
+    tmp_path: Path,
+    monkeypatch,
+    value: str,
+) -> None:
+    monkeypatch.setenv("CONCRITUP_HOSTED_MODE", "0")
+    monkeypatch.setenv("CONCRITUP_RETENTION_HOURS", value)
+    monkeypatch.delenv("CONCRITUP_EMBEDDING_ALLOWLIST", raising=False)
+
+    with pytest.raises(HostedConfigError, match="CONCRITUP_RETENTION_HOURS"):
+        HostedSettings.from_env(repo_root=tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("relative_root", "message"),
+    [
+        ("outside", "below the repository data directory"),
+        ("data", "dedicated child"),
+        ("data/jobs", "overlaps another managed path"),
+    ],
+)
+def test_hosted_settings_confines_session_deletion_root(
+    tmp_path: Path,
+    monkeypatch,
+    relative_root: str,
+    message: str,
+) -> None:
+    monkeypatch.setenv("CONCRITUP_HOSTED_MODE", "0")
+    monkeypatch.setenv("CONCRITUP_SESSION_ROOT", str(tmp_path / relative_root))
+    monkeypatch.delenv("CONCRITUP_EMBEDDING_ALLOWLIST", raising=False)
+
+    with pytest.raises(HostedConfigError, match=message):
+        HostedSettings.from_env(repo_root=tmp_path)
+
+
+def test_hosted_settings_rejects_final_session_root_symlink(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    session_root = data_root / "hosted_sessions"
+    session_root.symlink_to(outside, target_is_directory=True)
+    monkeypatch.setenv("CONCRITUP_HOSTED_MODE", "0")
+    monkeypatch.setenv("CONCRITUP_SESSION_ROOT", str(session_root))
+    monkeypatch.delenv("CONCRITUP_EMBEDDING_ALLOWLIST", raising=False)
+
+    with pytest.raises(HostedConfigError, match="may not be a symlink"):
+        HostedSettings.from_env(repo_root=tmp_path)
+
+
 def test_canonicalize_forces_server_paths_limits_and_single_job_runtime(tmp_path: Path) -> None:
     inputs = tmp_path / "sessions" / "owner" / "uploads"
     inputs.mkdir(parents=True)

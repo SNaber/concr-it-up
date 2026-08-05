@@ -31,3 +31,8 @@ Serve the Flask application through a production WSGI server and reverse
 proxy; do not expose the development server directly. The repository includes
 example Gunicorn, systemd, Nginx, and environment templates under
 `deploy/bwcloud/`. See `docs/deployment-bwcloud.md` for an overview.
+
+In hosted mode, the external worker also applies the configured retention
+period to terminal job bundles and to inactive owner-scoped uploads and saved
+configurations. Hosted requests refresh owner activity; anonymous identity is
+carried by the signed browser cookie.

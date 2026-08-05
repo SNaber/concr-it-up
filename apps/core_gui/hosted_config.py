@@ -17,6 +17,13 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .job_store import JobPaths
+from .session_storage import (
+    SessionStorageError,
+    SessionStorageLease,
+    acquire_session_storage_lease,
+    activate_session_storage,
+    validate_session_root,
+)
 
 
 DEFAULT_POS_TOKEN_PATTERN = r"[,;/| ]+"
@@ -38,12 +45,29 @@ def _as_bool(value: str | None, default: bool = False) -> bool:
     raise HostedConfigError(f"Invalid boolean environment value: {value}")
 
 
-def _resolved_env_path(name: str, default: Path, repo_root: Path) -> Path:
+def _as_nonnegative_float(name: str, default: float) -> float:
+    raw = os.environ.get(name, "").strip()
+    try:
+        value = default if not raw else float(raw)
+    except ValueError as exc:
+        raise HostedConfigError(f"{name} must be a finite non-negative number.") from exc
+    if not math.isfinite(value) or value < 0:
+        raise HostedConfigError(f"{name} must be a finite non-negative number.")
+    return value
+
+
+def _absolute_env_path(name: str, default: Path, repo_root: Path) -> Path:
+    """Resolve relativity without following the configured final symlink."""
+
     raw = os.environ.get(name, "").strip()
     path = Path(raw) if raw else default
     if not path.is_absolute():
         path = repo_root / path
-    return path.resolve(strict=False)
+    return path.absolute()
+
+
+def _resolved_env_path(name: str, default: Path, repo_root: Path) -> Path:
+    return _absolute_env_path(name, default, repo_root).resolve(strict=False)
 
 
 @dataclass(frozen=True)
@@ -243,24 +267,39 @@ class HostedSettings:
         allowlist = EmbeddingAllowlist.from_source(allowlist_source, base_dir=effective_root)
         if enabled and len(allowlist) == 0:
             raise HostedConfigError("Hosted mode requires a non-empty embedding allowlist.")
+        db_path = _resolved_env_path(
+            "CONCRITUP_JOB_DB", effective_root / "data" / "job_queue.sqlite3", effective_root
+        )
+        job_root = _resolved_env_path(
+            "CONCRITUP_JOB_ROOT", effective_root / "data" / "jobs", effective_root
+        )
+        session_candidate = _absolute_env_path(
+            "CONCRITUP_SESSION_ROOT",
+            effective_root / "data" / "hosted_sessions",
+            effective_root,
+        )
+        try:
+            session_root = validate_session_root(
+                session_candidate,
+                managed_data_root=effective_root / "data",
+                disallowed_paths=(job_root, db_path),
+            )
+        except SessionStorageError as exc:
+            raise HostedConfigError(str(exc)) from exc
+        retention_hours = _as_nonnegative_float("CONCRITUP_RETENTION_HOURS", 48.0)
         return cls(
             repo_root=effective_root,
             enabled=enabled,
             access_mode=access_mode,
             secret_key=secret_key,
-            db_path=_resolved_env_path(
-                "CONCRITUP_JOB_DB", effective_root / "data" / "job_queue.sqlite3", effective_root
-            ),
-            job_root=_resolved_env_path(
-                "CONCRITUP_JOB_ROOT", effective_root / "data" / "jobs", effective_root
-            ),
-            session_root=_resolved_env_path(
-                "CONCRITUP_SESSION_ROOT", effective_root / "data" / "hosted_sessions", effective_root
-            ),
+            db_path=db_path,
+            job_root=job_root,
+            session_root=session_root,
             paper_config_root=_resolved_env_path(
                 "CONCRITUP_PAPER_CONFIG_ROOT", effective_root / "configs" / "paper_runs", effective_root
             ),
             embedding_allowlist=allowlist,
+            limits=HostedLimits(retention_hours=retention_hours),
         )
 
 
@@ -296,11 +335,41 @@ class HostedPathResolver:
             raise HostedConfigError(f"Filename must end with {suffix}.")
         return name
 
-    def ensure_owner_dirs(self) -> None:
-        """Create the current owner's configuration and upload directories."""
-
+    def _create_owner_directories(self) -> None:
+        activate_session_storage(
+            self.settings.session_root,
+            owner_storage_key(self.owner),
+        )
         self.config_root.mkdir(parents=True, exist_ok=True)
         self.upload_root.mkdir(parents=True, exist_ok=True)
+
+    def acquire_owner_storage(self, *, create_owner: bool = True) -> SessionStorageLease:
+        """Lock this owner's storage and refresh it only when it exists."""
+
+        lease = acquire_session_storage_lease(
+            self.settings.session_root,
+            owner_storage_key(self.owner),
+            create_owner=create_owner,
+        )
+        try:
+            if create_owner:
+                self.config_root.mkdir(parents=True, exist_ok=True)
+                self.upload_root.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            lease.close()
+            raise
+        return lease
+
+    def activate_owner_storage(self) -> None:
+        """Create owner storage while the current hosted request lock is held."""
+
+        self._create_owner_directories()
+
+    def ensure_owner_dirs(self) -> None:
+        """Create owner directories and record activity for direct callers."""
+
+        with self.acquire_owner_storage():
+            pass
 
     def resolve(self, alias: str, *, must_exist: bool = True) -> Path:
         """Resolve a public alias within its authorized managed directory.
