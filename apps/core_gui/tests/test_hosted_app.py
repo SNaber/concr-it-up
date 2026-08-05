@@ -125,6 +125,10 @@ def test_anonymous_cookie_csrf_virtual_paths_and_allowlist(hosted_app):
     assert "48 hours of inactivity" in rendered
     assert "48 hours after completion or failure" in rendered
     assert "Download anything you need to keep" in rendered
+    assert 'id="uploadPrivacyNotice"' in rendered
+    assert "Do not upload personal" in rendered
+    assert 'href="/impressum"' in rendered
+    assert 'href="/datenschutz"' in rendered
 
     rejected = client.post("/api/config/save", base_url=HTTPS_ROOT, json={})
     assert rejected.status_code == 403
@@ -189,12 +193,82 @@ def test_read_only_anonymous_visits_do_not_create_owner_trees(hosted_app) -> Non
     for _ in range(20):
         assert hosted_app.test_client().get("/", base_url=HTTPS_ROOT).status_code == 200
 
-    owner_trees = [
-        child
-        for child in hosted.session_root.iterdir()
-        if child.is_dir() and re.fullmatch(r"[0-9a-f]{64}", child.name)
-    ]
+    owner_trees = (
+        [
+            child
+            for child in hosted.session_root.iterdir()
+            if child.is_dir() and re.fullmatch(r"[0-9a-f]{64}", child.name)
+        ]
+        if hosted.session_root.exists()
+        else []
+    )
     assert owner_trees == []
+
+
+def test_public_legal_pages_are_cookie_free_and_do_not_create_owner_storage(hosted_app) -> None:
+    hosted = hosted_app.config["HOSTED_SETTINGS"]
+    client = hosted_app.test_client()
+
+    for path in ("/impressum", "/datenschutz", "/static/styles.css"):
+        response = client.get(path, base_url=HTTPS_ROOT)
+        assert response.status_code == 200
+        assert "concritup_session" not in response.headers.get("Set-Cookie", "")
+
+    privacy_html = client.get("/datenschutz", base_url=HTTPS_ROOT).get_data(as_text=True)
+    assert "48 Stunden ohne Aktivität" in privacy_html
+    assert "48 Stunden nach Abschluss" in privacy_html
+    assert str(hosted.session_root) not in privacy_html
+    assert str(hosted.job_root) not in privacy_html
+
+    owner_trees = (
+        [
+            child
+            for child in hosted.session_root.iterdir()
+            if child.is_dir() and re.fullmatch(r"[0-9a-f]{64}", child.name)
+        ]
+        if hosted.session_root.exists()
+        else []
+    )
+    assert owner_trees == []
+
+
+def test_legal_pages_bypass_authenticated_staging_identity(tmp_path: Path, monkeypatch) -> None:
+    embedding = tmp_path / "embeddings" / "mini.vec"
+    embedding.parent.mkdir(parents=True)
+    embedding.write_text("1 2\nword 1.0 0.0\n", encoding="utf-8")
+    paper_configs = tmp_path / "configs" / "paper_runs"
+    paper_configs.mkdir(parents=True)
+
+    monkeypatch.setenv("CONCRITUP_HOSTED_MODE", "1")
+    monkeypatch.setenv("CONCRITUP_ACCESS_MODE", "authenticated")
+    monkeypatch.setenv("CONCRITUP_SECRET_KEY", "s" * 64)
+    monkeypatch.setenv(
+        "CONCRITUP_EMBEDDING_ALLOWLIST",
+        json.dumps(
+            {
+                "embeddings": [
+                    {
+                        "id": "mini",
+                        "kind": "vec",
+                        "path": str(embedding),
+                        "label": "Synthetic mini vectors",
+                    }
+                ]
+            }
+        ),
+    )
+    monkeypatch.setenv("CONCRITUP_JOB_DB", str(tmp_path / "state" / "jobs.sqlite3"))
+    monkeypatch.setenv("CONCRITUP_JOB_ROOT", str(tmp_path / "jobs"))
+    monkeypatch.setenv("CONCRITUP_SESSION_ROOT", str(tmp_path / "data" / "hosted_sessions"))
+    monkeypatch.setenv("CONCRITUP_PAPER_CONFIG_ROOT", str(paper_configs))
+
+    app = create_app(repo_root=tmp_path, testing=True, start_embedded_worker=False)
+    client = app.test_client()
+
+    assert client.get("/", base_url=HTTPS_ROOT).status_code == 401
+    assert client.get("/impressum", base_url=HTTPS_ROOT).status_code == 200
+    assert client.get("/datenschutz", base_url=HTTPS_ROOT).status_code == 200
+    assert client.get("/static/styles.css", base_url=HTTPS_ROOT).status_code == 200
 
 
 def test_early_csrf_rejection_releases_session_cleanup_lock(hosted_app) -> None:

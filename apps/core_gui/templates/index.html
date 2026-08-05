@@ -265,7 +265,15 @@
         job files and records expire {{ retention_hours }} hours after completion or failure.
         Download anything you need to keep.
       </p>
+      <p id="uploadPrivacyNotice">
+        Upload only non-personal data that you are permitted to process. Do not upload personal,
+        confidential, or sensitive information.
+      </p>
       {% endif %}
+      <nav class="legal-links" aria-label="Legal information">
+        <a href="{{ url_for('impressum') }}">Imprint</a>
+        <a href="{{ url_for('datenschutz') }}">Data privacy</a>
+      </nav>
       <p id="flashMessage" aria-live="polite"></p>
     </footer>
 

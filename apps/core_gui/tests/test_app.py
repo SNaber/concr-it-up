@@ -293,6 +293,8 @@ def test_index_page_contains_core_inputs_and_guided_ui(gui_env):
     assert 'id="btnUploadGoldCsv"' in html
     assert 'id="btnUploadPredictVocab"' in html
     assert 'id="retentionNotice"' not in html
+    assert 'href="/impressum"' in html
+    assert 'href="/datenschutz"' in html
     assert "Add gold file (CSV/TSV); set word/score columns." in html
     assert "Select embedding file or type a path." in html
     assert "Add targets file (one token per line)." in html
@@ -307,6 +309,35 @@ def test_index_page_contains_core_inputs_and_guided_ui(gui_env):
     emb_kind_idx = html.index('id="emb_single_kind"')
     target_idx = html.index('id="prediction_target"')
     assert core_idx < gold_idx < word_idx < score_idx < existing_emb_idx < emb_path_idx < emb_kind_idx < target_idx < adv_idx
+
+
+def test_legal_information_pages_are_get_only_and_self_contained(gui_env):
+    client = gui_env["client"]
+
+    imprint = client.get("/impressum")
+    assert imprint.status_code == 200
+    imprint_html = imprint.get_data(as_text=True)
+    assert "Impressum" in imprint_html
+    assert "Universität Stuttgart" in imprint_html
+    assert "Keplerstraße 7" in imprint_html
+    assert "Sven Naber" in imprint_html
+    assert "sven.naber@ims.uni-stuttgart.de" in imprint_html
+    assert "<script" not in imprint_html
+
+    privacy = client.get("/datenschutz")
+    assert privacy.status_code == 200
+    privacy_html = privacy.get_data(as_text=True)
+    assert "Datenschutzerklärung" in privacy_html
+    assert "concritup_session" in privacy_html
+    assert "nicht-personenbezogene" in privacy_html
+    assert "48 Stunden ohne Aktivität" in privacy_html
+    assert "48 Stunden nach Abschluss" in privacy_html
+    assert "keine Webanalyse" in privacy_html
+    assert "datenschutzbeauftragter@uni-stuttgart.de" in privacy_html
+    assert "<script" not in privacy_html
+
+    assert client.post("/impressum").status_code == 405
+    assert client.post("/datenschutz").status_code == 405
 
 
 def test_frontend_boot_autoloads_default_config_script_marker():

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}{% endblock %} · KNN-ConcrItUp</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <header class="hero legal-hero">
+      <div>
+        <a class="legal-home" href="{{ url_for('index') }}">KNN-ConcrItUp</a>
+        <p>{% block subtitle %}{% endblock %}</p>
+      </div>
+    </header>
+
+    <main class="legal-page">
+      <article class="panel legal-document">
+        {% block content %}{% endblock %}
+      </article>
+    </main>
+
+    <footer class="legal-footer">
+      <nav class="legal-links" aria-label="Rechtliche Hinweise">
+        <a href="{{ url_for('index') }}">Anwendung</a>
+        <a href="{{ url_for('impressum') }}">Impressum</a>
+        <a href="{{ url_for('datenschutz') }}">Datenschutz</a>
+      </nav>
+    </footer>
+  </body>
+</html>

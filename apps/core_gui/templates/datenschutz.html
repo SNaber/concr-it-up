@@ -1,0 +1,175 @@
+{% extends "legal_base.html" %}
+
+{% block title %}Datenschutz{% endblock %}
+{% block subtitle %}Datenschutzinformation für KNN-ConcrItUp{% endblock %}
+
+{% block content %}
+<h1>Datenschutzerklärung</h1>
+<p class="legal-version">Stand: 5. August 2026</p>
+
+<p>
+  Diese Datenschutzerklärung beschreibt die Verarbeitung von Daten beim öffentlichen Dienst
+  KNN-ConcrItUp unter <strong>concr-it-up.ims.uni-stuttgart.de</strong>. Der Dienst erstellt aus
+  sprachlichen Bewertungsdaten und einem ausgewählten Wort-Embedding kNN-Modelle und
+  Wortvorhersagen.
+</p>
+
+<div class="legal-warning">
+  <strong>Wichtiger Hinweis:</strong> Dieser Dienst ist ausschließlich für nicht-personenbezogene
+  lexikalische oder vergleichbare wissenschaftliche Daten bestimmt. Laden Sie keine
+  personenbezogenen, vertraulichen oder besonders schutzbedürftigen Daten hoch. Laden Sie nur
+  Inhalte hoch, die Sie zu diesem Zweck verarbeiten dürfen. Diese Beschränkung entspricht den
+  <a href="https://bwcloud-os.de/nutzung">Nutzungshinweisen der bwCloud-OS</a>.
+</div>
+
+<h2>1. Verantwortlicher</h2>
+<address>
+  Universität Stuttgart<br />
+  Keplerstraße 7<br />
+  70174 Stuttgart<br />
+  Deutschland
+</address>
+<p>
+  Telefon: <a href="tel:+497116850">+49 711 685-0</a><br />
+  E-Mail: <a href="mailto:poststelle@uni-stuttgart.de">poststelle@uni-stuttgart.de</a>
+</p>
+<p>
+  Ansprechperson für diesen Dienst und für eine vorzeitige Löschanfrage ist Sven Naber,
+  Institut für Maschinelle Sprachverarbeitung,
+  <a href="mailto:sven.naber@ims.uni-stuttgart.de">sven.naber@ims.uni-stuttgart.de</a>.
+  Geben Sie bei einer Löschanfrage nach Möglichkeit die Job-ID an, aber senden Sie die
+  hochgeladenen Daten nicht erneut per E-Mail.
+</p>
+
+<h2>2. Datenschutzbeauftragter</h2>
+<address>
+  Universität Stuttgart<br />
+  Datenschutzbeauftragter<br />
+  Geschwister-Scholl-Str. 24b<br />
+  70174 Stuttgart
+</address>
+<p>
+  Telefon: <a href="tel:+4971168583687">+49 711 685-83687</a><br />
+  E-Mail:
+  <a href="mailto:datenschutzbeauftragter@uni-stuttgart.de">datenschutzbeauftragter@uni-stuttgart.de</a>
+</p>
+
+<h2>3. Bereitstellung der Webseite und Protokollierung</h2>
+<p>
+  Beim Aufruf der Webseite wird Ihre IP-Adresse technisch verarbeitet, damit die Seite an Ihren
+  Browser ausgeliefert und der Dienst gegen Überlastung und Angriffe geschützt werden kann. Die
+  dienstspezifische Zugriffsprotokollierung auf dem Webserver enthält Zeitpunkt, HTTP-Methode und
+  aufgerufenen Pfad ohne Abfrageparameter, Antwortstatus, Antwortgröße und Bearbeitungsdauer. Sie
+  enthält weder IP-Adresse noch Anfrageinhalt, Benutzernamen, Browserkennung oder Referrer.
+  IP-Adressen werden für die Begrenzung der Anfragerate nur vorübergehend im Arbeitsspeicher
+  verarbeitet.
+</p>
+<p>
+  Bei technischen Fehlern oder Sicherheitsvorfällen können zusätzlich Fehler- und
+  Infrastrukturprotokolle entstehen. Diese werden nur zur Fehleranalyse und Sicherung des
+  Betriebs verwendet und nach Wegfall dieses Zwecks gemäß den betrieblichen Löschregeln
+  gelöscht. Weitere Informationen zur Verarbeitung auf zentralen Netzwerkkomponenten enthält
+  die <a href="https://www.uni-stuttgart.de/datenschutz/">Datenschutzerklärung der Universität Stuttgart</a>.
+</p>
+
+<h2>4. Technisch notwendiges Session-Cookie</h2>
+<p>
+  Der Dienst setzt das technisch notwendige Cookie <code>concritup_session</code>. Es enthält
+  einen zufällig erzeugten pseudonymen Sitzungsbezeichner und ein Sicherheitstoken. Namen,
+  E-Mail-Adressen oder hochgeladene Inhalte werden nicht im Cookie gespeichert. Das Cookie
+  ordnet Uploads, Aufträge und Ergebnisse derselben Browsersitzung zu und schützt
+  zustandsändernde Anfragen gegen Cross-Site-Request-Forgery. Es ist als
+  <code>Secure</code>, <code>HttpOnly</code> und <code>SameSite=Lax</code> gesetzt und hat keine
+  feste Ablaufzeit; der Browser behandelt es als Session-Cookie.
+</p>
+<p>
+  Sie können das Cookie über Ihren Browser löschen oder Cookies blockieren. Ohne das Cookie ist
+  die Zuordnung Ihrer Aufträge und Ergebnisse nicht möglich. Wird es gelöscht, verlieren Sie
+  sofort den Zugriff auf den zugehörigen Speicherbereich; die serverseitigen Daten werden
+  dadurch nicht vorzeitig gelöscht.
+</p>
+
+<h2>5. Hochgeladene Daten, Modellläufe und Ergebnisse</h2>
+<p>Wenn Sie den Dienst nutzen, werden insbesondere folgende Daten verarbeitet:</p>
+<ul>
+  <li>hochgeladene Gold- und Zielwortdateien sowie deren Dateinamen;</li>
+  <li>gespeicherte oder für einen Lauf übermittelte Konfigurationen;</li>
+  <li>Kopien der Eingaben im jeweiligen Auftragsverzeichnis;</li>
+  <li>
+    Vorhersagen, Nachbar-Evidenz, Bewertungs- und Abdeckungsmetriken, OOV-Listen und weitere
+    Ergebnisdateien;
+  </li>
+  <li>
+    technische Laufprotokolle, Prüfsummen, Software- und Embedding-Versionen, Zeitangaben sowie
+    Status- und Auftragsmetadaten in der Warteschlange.
+  </li>
+</ul>
+<p>
+  Zweck der Verarbeitung ist die Auswahl und Ausführung des kNN-Modells, die Erstellung der
+  angeforderten Vorhersagen und Evidenzen, die Bereitstellung der Ergebnisse sowie der sichere
+  und nachvollziehbare Betrieb des Dienstes. Die Nutzung und Bereitstellung der Eingaben ist
+  freiwillig; ohne die erforderlichen Eingaben kann kein Modelllauf ausgeführt werden.
+</p>
+
+<h2>6. Rechtsgrundlage</h2>
+<p>
+  Rechtsgrundlage für die vorübergehende Verarbeitung der Eingaben, Auftragsdaten und Ergebnisse
+  sowie für die technisch notwendige Sitzungs- und Sicherheitsverarbeitung ist Art. 6 Abs. 1
+  lit. f DS-GVO. Das berechtigte Interesse liegt in der Bereitstellung und im sicheren,
+  missbrauchsgeschützten Betrieb des wissenschaftlichen Dienstes. Die Daten werden nicht für
+  Werbung oder zur Erstellung personenbezogener Profile verwendet.
+</p>
+
+<h2>7. Speicherung und Löschung</h2>
+<ul>
+  <li>
+    Uploads und ausdrücklich gespeicherte Konfigurationen werden nach
+    {{ retention_hours }} Stunden ohne Aktivität derselben Browsersitzung zur automatischen
+    Löschung freigegeben.
+  </li>
+  <li>
+    Eingabekopien, Ergebnisdateien, Laufprotokolle und Datenbankeinträge eines abgeschlossenen
+    oder fehlgeschlagenen Auftrags werden {{ retention_hours }} Stunden nach Abschluss oder
+    Fehlschlag zur automatischen Löschung freigegeben.
+  </li>
+  <li>
+    Vorbereitete, wartende oder laufende Aufträge werden nicht gelöscht. Die Bereinigung wird
+    regelmäßig ausgeführt, kann aber bis zum Ende eines laufenden Modelllaufs verzögert sein.
+  </li>
+</ul>
+<p>
+  Laden Sie benötigte Ergebnisse rechtzeitig herunter. Eine frühere Löschung kann über die oben
+  genannte Dienst-Ansprechperson angefragt werden.
+</p>
+
+<h2>8. Empfänger und Hosting</h2>
+<p>
+  Die Verarbeitung erfolgt auf einer Instanz der bwCloud-OS am Standort Mannheim. Technische
+  Empfänger sind ausschließlich die mit Infrastruktur, Betrieb und Administration beauftragten
+  Stellen und Personen der Universität und der bwCloud-OS. Eine weitere Übermittlung erfolgt nur,
+  wenn sie gesetzlich vorgeschrieben oder zur Untersuchung eines konkreten Sicherheitsvorfalls
+  erforderlich ist.
+</p>
+
+<h2>9. Keine Analyse- oder Drittanbieterdienste</h2>
+<p>
+  Der Dienst verwendet keine Webanalyse, Werbung, Social-Media-Elemente oder extern geladenen
+  Skripte, Schriftarten und sonstigen Frontend-Ressourcen. Es findet keine automatisierte
+  Entscheidung über Personen und kein personenbezogenes Profiling statt. Externe Webseiten
+  werden erst aufgerufen, wenn Sie einen entsprechenden Link anklicken.
+</p>
+
+<h2>10. Ihre Rechte</h2>
+<p>
+  Soweit personenbezogene Daten betroffen sind, haben Sie insbesondere das Recht auf Auskunft,
+  Berichtigung, Löschung, Einschränkung der Verarbeitung und Widerspruch. Wenden Sie sich hierzu
+  an den Datenschutzbeauftragten oder an die oben genannte Dienst-Ansprechperson. Da der Dienst
+  keine Benutzerkonten führt, kann zur Zuordnung eine Job-ID oder der noch vorhandene
+  Sitzungskontext erforderlich sein.
+</p>
+<p>
+  Sie haben außerdem das Recht auf Beschwerde beim
+  <a href="https://www.baden-wuerttemberg.datenschutz.de/">
+    Landesbeauftragten für den Datenschutz und die Informationsfreiheit Baden-Württemberg</a>.
+</p>
+{% endblock %}

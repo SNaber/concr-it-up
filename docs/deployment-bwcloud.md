@@ -34,6 +34,29 @@ data-retention policies.
    resource-limit, backup, and restore behavior before considering anonymous
    access.
 
+## Public-release privacy checklist
+
+The application serves its imprint at `/impressum` and its service-specific
+privacy notice at `/datenschutz`. Both pages and their stylesheet are public
+and do not create an application session. Before enabling anonymous access:
+
+- have the University of Stuttgart data-protection contact approve the stated
+  legal basis, controller/recipient wording, and the restriction to
+  non-personal uploads;
+- confirm that the intended use is compatible with bwCloud-OS policy, which
+  currently excludes storing personal or sensitive information in instances;
+- verify the effective retention of Nginx error logs, systemd journal data,
+  infrastructure logs, and any administrative backup, and align operations
+  with the published notice;
+- delete temporary deployment backups that are no longer required;
+- verify that the configured hostname is covered by the TLS certificate; and
+- revisit the notice whenever hosting, logging, retention, contacts, cookies,
+  analytics, or the categories of accepted input change.
+
+The hosted GUI warns users not to upload personal, confidential, or sensitive
+information. This warning is a usage restriction, not a substitute for the
+institutional review above.
+
 The example environment limits numerical-library threads and the example
 worker unit constrains memory and CPU use. Hosted requests are additionally
 subject to server-side input, queue, runtime, output, and retention limits.

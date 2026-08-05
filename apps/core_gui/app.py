@@ -72,6 +72,7 @@ EMBEDDING_EXTENSIONS = {".bin", ".vec", ".txt"}
 GUIDED_UPLOAD_TARGETS = {"gold", "target"}
 GUIDED_UPLOAD_DIR = Path("data/uploads/gui")
 STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+PUBLIC_INFORMATION_ENDPOINTS = {"healthz", "impressum", "datenschutz", "static"}
 
 
 class GUIError(ValueError):
@@ -671,7 +672,7 @@ def create_app(
 
     @app.before_request
     def initialize_request_identity():
-        if request.endpoint == "healthz":
+        if request.endpoint in PUBLIC_INFORMATION_ENDPOINTS:
             return None
 
         if not hosted.enabled or hosted.access_mode == "trusted":
@@ -958,6 +959,17 @@ def create_app(
             repo_root=str(app.config["GUI_REPO_ROOT"]),
             csrf_token=str(session.get("csrf_token", "")),
             hosted_enabled=hosted.enabled,
+            retention_hours=f"{hosted.limits.retention_hours:g}",
+        )
+
+    @app.route("/impressum")
+    def impressum() -> str:
+        return render_template("impressum.html")
+
+    @app.route("/datenschutz")
+    def datenschutz() -> str:
+        return render_template(
+            "datenschutz.html",
             retention_hours=f"{hosted.limits.retention_hours:g}",
         )
 
