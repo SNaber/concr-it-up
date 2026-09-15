@@ -34,21 +34,24 @@ data-retention policies.
    resource-limit, backup, and restore behavior before considering anonymous
    access.
 
-## Public-release privacy checklist
+## Before enabling anonymous hosted access
 
 The application serves its imprint at `/impressum` and its service-specific
 privacy notice at `/datenschutz`. Both pages and their stylesheet are public
 and do not create an application session. Before enabling anonymous access:
 
-- have the University of Stuttgart data-protection contact approve the stated
-  legal basis, controller/recipient wording, and the restriction to
-  non-personal uploads;
-- confirm that the intended use is compatible with bwCloud-OS policy, which
-  currently excludes storing personal or sensitive information in instances;
+- adapt the imprint and privacy notice to the deployment's operator, contacts,
+  hostname, hosting arrangements, and data-handling practices; the included
+  pages describe the University of Stuttgart service;
+- obtain the host institution's required data-protection review of the legal
+  basis, controller and recipient wording, and permitted upload categories;
+- confirm that the intended use complies with the hosting provider's current
+  acceptable-use and data-protection policies;
 - verify the effective retention of Nginx error logs, systemd journal data,
   infrastructure logs, and any administrative backup, and align operations
   with the published notice;
-- delete temporary deployment backups that are no longer required;
+- include temporary deployment backups in the documented retention and
+  deletion procedures;
 - verify that the configured hostname is covered by the TLS certificate; and
 - revisit the notice whenever hosting, logging, retention, contacts, cookies,
   analytics, or the categories of accepted input change.
