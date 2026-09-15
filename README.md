@@ -50,6 +50,11 @@ results, vocabulary predictions, neighbor evidence, and OOV diagnostics.
 The development server is intended for local use. A concise overview of the
 included production templates is available in `docs/deployment-bwcloud.md`.
 
+The imprint and privacy notice in `apps/core_gui/templates/` describe the
+University of Stuttgart service. If you host your own instance, adapt these
+pages to your operator, contact details, hostname, hosting, and data-handling
+practices before making the service available.
+
 ## Command-line interface
 
 ```bash
