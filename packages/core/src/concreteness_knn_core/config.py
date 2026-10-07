@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import math
+import re
 from pathlib import Path
 from typing import Any, Dict
 
@@ -174,8 +176,57 @@ def _legacy_keys_present(cfg: Dict[str, Any]) -> list[tuple[str, str]]:
     return present
 
 
+def validate_numeric_settings(cfg: Dict[str, Any]) -> None:
+    """Reject invalid supplied numbers rather than truncating or defaulting them.
+
+    Missing fields are allowed here so partial saved configurations still work.
+    Command validation supplies the remaining defaults and required fields.
+    """
+    fields = {
+        "runtime": {"seed": (0, 2**32 - 1), "n_jobs": (None, None)},
+        "prediction": {"cv_folds": (2, None), "k_min": (1, None),
+                       "k_max": (1, None), "k_step": (1, None), "topn_neighbors": (1, None)},
+    }
+    for section, settings in fields.items():
+        values = cfg.get(section, {})
+        if not isinstance(values, dict):
+            raise ValueError(f"{section} must be an object.")
+        for name, (minimum, maximum) in settings.items():
+            if name not in values:
+                continue
+            value = values[name]
+            valid = (
+                type(value) is int
+                or (type(value) is float and math.isfinite(value) and value.is_integer())
+                or (isinstance(value, str) and re.fullmatch(r"[+-]?\d+", value.strip()))
+            )
+            label = f"{section}.{name}"
+            if not valid:
+                raise ValueError(f"{label} must be an integer.")
+            parsed = int(value)
+            if minimum is not None and parsed < minimum:
+                raise ValueError(f"{label} must be >= {minimum}.")
+            if maximum is not None and parsed > maximum:
+                raise ValueError(f"{label} must be <= {maximum}.")
+            if name == "n_jobs" and parsed == 0:
+                raise ValueError("runtime.n_jobs must be != 0.")
+    prediction = cfg.get("prediction", {})
+    if "test_size" in prediction:
+        value = prediction["test_size"]
+        try:
+            valid = not isinstance(value, bool) and 0 < float(value) < 1
+        except (TypeError, ValueError, OverflowError):
+            valid = False
+        if not valid:
+            raise ValueError("prediction.test_size must be in (0, 1).")
+    if "k_min" in prediction and "k_max" in prediction:
+        if int(prediction["k_min"]) > int(prediction["k_max"]):
+            raise ValueError("prediction.k_min must be <= prediction.k_max.")
+
+
 def validate_common_config(cfg: Dict[str, Any]) -> None:
     """Validate cross-task invariants shared by core and extension workflows."""
+    validate_numeric_settings(cfg)
     legacy_pairs = _legacy_keys_present(cfg)
     if legacy_pairs:
         details = "; ".join(f"{old} -> {new}" for old, new in legacy_pairs)

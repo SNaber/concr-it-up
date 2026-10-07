@@ -10,6 +10,7 @@
   const DEFAULT_WORD_COLUMN = "Word";
   const DEFAULT_SCORE_COLUMN = "Conc.M";
   const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || "";
+  const HOSTED_MODE = document.body.dataset.hosted === "true";
 
   const FIELD_HELP = {
   dataset_gold: "Add gold file (CSV/TSV); set word/score columns. UTF-8 recommended.",
@@ -46,6 +47,12 @@
     pollTimer: null,
     elapsedTimer: null,
     activeJob: null,
+    embeddingCandidates: [],
+    pollFailures: 0,
+    pollRequestId: 0,
+    recoveryRequestId: 0,
+    previewRequestId: 0,
+    latestRequestId: 0,
     results: {
       latestJob: null,
       artifactKey: "",
@@ -128,15 +135,22 @@
       headers.set("X-CSRF-Token", CSRF_TOKEN);
       requestOptions.headers = headers;
     }
-    const response = await fetch(url, requestOptions);
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || (!allowPayloadError && payload.error)) {
-      const error = new Error(payload.error || `Request failed (${response.status}).`);
-      error.status = response.status;
-      error.payload = payload;
-      throw error;
+    const controller = new AbortController();
+    const timeout = method === "GET" ? setTimeout(() => controller.abort(), 15000) : null;
+    if (timeout !== null) requestOptions.signal = controller.signal;
+    try {
+      const response = await fetch(url, requestOptions);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || (!allowPayloadError && payload.error)) {
+        const error = new Error(payload.error || `Request failed (${response.status}).`);
+        error.status = response.status;
+        error.payload = payload;
+        throw error;
+      }
+      return payload;
+    } finally {
+      if (timeout !== null) clearTimeout(timeout);
     }
-    return payload;
   }
 
   function escapeHtml(value) {
@@ -223,14 +237,27 @@
     return !!document.getElementById(id).checked;
   }
 
-  function toInt(id, fallback) {
-    const parsed = Number.parseInt(getText(id), 10);
-    return Number.isFinite(parsed) ? parsed : fallback;
+  function invalidField(id, message) {
+    const input = document.getElementById(id);
+    setView("editor");
+    const details = input.closest("details");
+    if (details) details.open = true;
+    input.setCustomValidity(message);
+    input.reportValidity();
+    input.focus();
+    throw new Error(message);
   }
 
-  function toFloat(id, fallback) {
-    const parsed = Number.parseFloat(getText(id));
-    return Number.isFinite(parsed) ? parsed : fallback;
+  function readNumber(id, integer = false) {
+    const input = document.getElementById(id);
+    input.setCustomValidity("");
+    const raw = getText(id);
+    const parsed = Number(raw);
+    if (!raw || !Number.isFinite(parsed) || (integer && !Number.isSafeInteger(parsed))) {
+      invalidField(id, `${id.replace(/_/g, " ")} must be ${integer ? "an integer" : "a number"}.`);
+    }
+    if (!input.checkValidity()) invalidField(id, input.validationMessage);
+    return parsed;
   }
 
   function valueOrNull(raw) {
@@ -308,7 +335,7 @@
     const dirtyText = state.dirty ? "unsaved changes" : "saved/clean";
     els.editorSessionState.textContent = path
       ? `Open config: ${path} (${dirtyText})`
-      : `Open in-memory config (${dirtyText})`;
+      : `New config (${state.dirty ? "unsaved changes" : "not saved yet"})`;
   }
 
   function updateRunButtons() {
@@ -370,10 +397,14 @@
   }
 
   function collectSingleSpace() {
+    const path = getText("emb_single_path");
+    const selected = state.embeddingCandidates.find((item) => item.path === path);
+    if (selected) {
+      return { id: selected.id, kind: selected.kind, path, label: selected.label };
+    }
     const current = pickGuidedSingleSpace(state.rawConfig || {});
     const id = String(current.id || "").trim() || "default";
     const kind = getText("emb_single_kind") || current.kind || "ft_bin";
-    const path = getText("emb_single_path");
     const label = String(current.label || "").trim() || id;
     return { id, kind, path, label };
   }
@@ -398,7 +429,8 @@
     }
     const payload = await fetchJSON("/api/fs/embeddings");
     const options = Array.isArray(payload.candidates) ? payload.candidates : [];
-    const previousValue = String(preferredPath || els.embExistingSelect.value || getText("emb_single_path") || "").trim();
+    state.embeddingCandidates = options;
+    const previousValue = getText("emb_single_path") || String(preferredPath || "").trim();
 
     els.embExistingSelect.innerHTML = "";
     const placeholder = document.createElement("option");
@@ -466,6 +498,11 @@
     setText("prediction_target", getPath(cfg, "prediction.target", "") || "");
 
     setText("reports_level", getPath(cfg, "reports.level", "core"));
+    if (HOSTED_MODE) {
+      setText("runtime_n_jobs", 1);
+      setText("reports_level", "full");
+      setText("pos_token_pattern", DEFAULT_POS_TOKEN_PATTERN);
+    }
   }
 
   function buildConfigFromGuided() {
@@ -495,15 +532,20 @@
     setPath(base, "embeddings.spaces", [singleSpace]);
 
     setPath(base, "runtime.output_dir", getText("runtime_output_dir") || DEFAULT_RUNTIME_OUTPUT_DIR);
-    setPath(base, "runtime.seed", toInt("runtime_seed", 13));
-    setPath(base, "runtime.n_jobs", toInt("runtime_n_jobs", -1));
+    setPath(base, "runtime.seed", readNumber("runtime_seed", true));
+    const nJobs = HOSTED_MODE ? 1 : readNumber("runtime_n_jobs", true);
+    if (nJobs === 0) invalidField("runtime_n_jobs", "n_jobs must not be zero.");
+    setPath(base, "runtime.n_jobs", nJobs);
 
-    setPath(base, "prediction.test_size", toFloat("prediction_test_size", 0.2));
-    setPath(base, "prediction.cv_folds", toInt("prediction_cv_folds", 5));
-    setPath(base, "prediction.k_min", toInt("prediction_k_min", 5));
-    setPath(base, "prediction.k_max", toInt("prediction_k_max", 100));
-    setPath(base, "prediction.k_step", toInt("prediction_k_step", 5));
-    setPath(base, "prediction.topn_neighbors", toInt("prediction_topn_neighbors", 10));
+    const testSize = readNumber("prediction_test_size");
+    if (testSize <= 0 || testSize >= 1) invalidField("prediction_test_size", "test_size must be greater than 0 and less than 1.");
+    setPath(base, "prediction.test_size", testSize);
+    for (const key of ["cv_folds", "k_min", "k_max", "k_step", "topn_neighbors"]) {
+      setPath(base, `prediction.${key}`, readNumber(`prediction_${key}`, true));
+    }
+    if (base.prediction.k_min > base.prediction.k_max) {
+      invalidField("prediction_k_max", "k_max must be at least k_min.");
+    }
     setPath(base, "prediction.target", valueOrNull(getText("prediction_target")));
 
     setPath(base, "reports.level", getText("reports_level") || "core");
@@ -523,8 +565,9 @@
     return syncGuidedToRaw();
   }
 
-  function setRawConfig(config, sourceLabel, markCleanFlag) {
+  function setRawConfig(config, sourceLabel, markCleanFlag, path = "") {
     state.rawConfig = deepClone(config);
+    els.configPath.value = path;
     populateGuided(state.rawConfig);
     refreshEmbeddingsPicker(getText("emb_single_path")).catch((_error) => {});
     setEditorOpen(true);
@@ -643,6 +686,8 @@
   }
 
   async function pollJob(jobId) {
+    state.currentJobId = jobId;
+    const requestId = ++state.pollRequestId;
     if (state.pollTimer) {
       clearTimeout(state.pollTimer);
       state.pollTimer = null;
@@ -654,6 +699,9 @@
         {},
         { allowPayloadError: true }
       );
+      if (requestId !== state.pollRequestId) return;
+      if (state.pollFailures > 0) setMessage("Reconnected to job status.");
+      state.pollFailures = 0;
       state.activeJob = job;
       updateRunButtons();
       updateWorkingIndicator(job);
@@ -672,7 +720,36 @@
         }
       }
     } catch (error) {
-      setMessage(error.message, true);
+      if (requestId !== state.pollRequestId) return;
+      if (error.status === 404) {
+        state.currentJobId = null;
+        state.activeJob = null;
+        updateRunButtons();
+        updateWorkingIndicator(null);
+        setMessage("This job is no longer available. Its retention period may have ended.", true);
+        return;
+      }
+      state.pollFailures += 1;
+      els.workingBadge.textContent = "RECONNECTING";
+      els.workingLatestLog.textContent = "Connection interrupted; retrying job status.";
+      setMessage("Connection interrupted; retrying job status automatically.", true);
+      state.pollTimer = setTimeout(() => pollJob(jobId), Math.min(1000 * (2 ** Math.min(state.pollFailures, 5)), 30000));
+    }
+  }
+
+  async function recoverActiveJob() {
+    const recoveryId = ++state.recoveryRequestId;
+    const data = await fetchJSON("/api/jobs/active");
+    if (recoveryId !== state.recoveryRequestId) return;
+    const active = data.active_job;
+    if (active) {
+      state.activeJob = active;
+      updateRunButtons();
+      updateWorkingIndicator(active);
+      els.jobStatus.textContent = prettyPrintJob(active);
+      await pollJob(active.job_id);
+    } else if (state.currentJobId) {
+      await pollJob(state.currentJobId);
     }
   }
 
@@ -682,6 +759,11 @@
       assertPredictionRunRequirements(config);
     }
     setView("results");
+    ++state.recoveryRequestId;
+    ++state.pollRequestId;
+    if (state.pollTimer) clearTimeout(state.pollTimer);
+    state.pollTimer = null;
+    state.pollFailures = 0;
     const payload = { config };
     const maybePath = els.configPath.value.trim();
     if (maybePath) {
@@ -899,13 +981,16 @@
     }
 
     const text = String(value);
-    if (text.includes("|")) {
+    const name = String(columnName).split("__")[0];
+    if (["neighbor_gold_scores", "neighbor_cosine_distances"].includes(name)) {
       return text
         .split("|")
         .map((token) => token.trim())
         .map((token) => formatNumericToken(token, columnName))
         .join(" | ");
     }
+    const numericFields = ["pred", "gold", "error", "abs_error", "k", "mean_spearman", "std_spearman", "mean_rmse", "std_rmse"];
+    if (!numericFields.includes(name)) return text;
     return formatNumericToken(text, columnName);
   }
 
@@ -1056,8 +1141,8 @@
     const count = payload.kind === "csv"
       ? (Array.isArray(payload.rows) ? payload.rows.length : 0)
       : (Array.isArray(payload.lines) ? payload.lines.length : 0);
-    const from = total === 0 ? 0 : offset + 1;
-    const to = total === 0 ? 0 : offset + count;
+    const from = count === 0 ? 0 : offset + 1;
+    const to = count === 0 ? 0 : offset + count;
     els.resultPagingInfo.textContent = `${from}-${to} / ${total}`;
 
     els.btnPrevPage.disabled = offset <= 0;
@@ -1115,11 +1200,12 @@
   }
 
   function currentResultParams(resetOffset) {
-    if (resetOffset) {
+    const searchDisabled = isSearchDisabledArtifactSelected();
+    const query = searchDisabled ? "" : els.resultSearchQuery.value.trim();
+    if (resetOffset || query !== state.results.query) {
       state.results.offset = 0;
     }
-    const searchDisabled = isSearchDisabledArtifactSelected();
-    state.results.query = searchDisabled ? "" : els.resultSearchQuery.value.trim();
+    state.results.query = query;
 
     return {
       job_id: state.results.latestJob.job_id,
@@ -1131,56 +1217,66 @@
   }
 
   async function previewSelectedArtifact(resetOffset = false) {
-    if (!state.results.latestJob || !state.results.artifactKey) {
-      return;
-    }
+    const requestId = ++state.previewRequestId;
+    try {
+      if (!state.results.latestJob || !state.results.artifactKey) {
+        return;
+      }
 
-    if (isSummaryArtifactSelected()) {
-      const params = new URLSearchParams({
-        job_id: state.results.latestJob.job_id,
-        artifact_key: state.results.artifactKey,
-      });
-      const response = await fetch(`/api/results/download?${params.toString()}`);
-      if (!response.ok) {
-        throw new Error(`Could not load ${state.results.artifactKey}.`);
+      if (isSummaryArtifactSelected()) {
+        const params = new URLSearchParams({
+          job_id: state.results.latestJob.job_id,
+          artifact_key: state.results.artifactKey,
+        });
+        const response = await fetch(`/api/results/download?${params.toString()}`);
+        if (!response.ok) {
+          throw new Error(`Could not load ${state.results.artifactKey}.`);
+        }
+        const rawText = await response.text();
+        if (requestId !== state.previewRequestId) return;
+        let parsed;
+        try {
+          parsed = JSON.parse(rawText);
+        } catch (_error) {
+          parsed = null;
+        }
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const artifactPath = (state.results.latestJob.artifacts || {})[state.results.artifactKey] || "";
+          renderSummaryView(parsed, rawText, artifactPath);
+        } else {
+          els.resultPath.textContent = (state.results.latestJob.artifacts || {})[state.results.artifactKey] || "";
+          els.resultPreview.innerHTML = "";
+          const pre = document.createElement("pre");
+          pre.className = "result-text";
+          pre.textContent = rawText;
+          els.resultPreview.appendChild(pre);
+        }
+        state.results.offset = 0;
+        updateArtifactModeControls();
+        return;
       }
-      const rawText = await response.text();
-      let parsed;
-      try {
-        parsed = JSON.parse(rawText);
-      } catch (_error) {
-        parsed = null;
-      }
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        const artifactPath = (state.results.latestJob.artifacts || {})[state.results.artifactKey] || "";
-        renderSummaryView(parsed, rawText, artifactPath);
-      } else {
-        els.resultPath.textContent = (state.results.latestJob.artifacts || {})[state.results.artifactKey] || "";
-        els.resultPreview.innerHTML = "";
-        const pre = document.createElement("pre");
-        pre.className = "result-text";
-        pre.textContent = rawText;
-        els.resultPreview.appendChild(pre);
-      }
-      state.results.offset = 0;
+
+      const params = new URLSearchParams(currentResultParams(resetOffset));
+      const payload = await fetchJSON(`/api/results/preview?${params.toString()}`);
+      if (requestId !== state.previewRequestId) return;
+      renderResultPreview(payload);
+      state.results.offset = Number(payload.offset || 0);
       updateArtifactModeControls();
-      return;
+    } catch (error) {
+      if (requestId === state.previewRequestId) throw error;
     }
-
-    const params = new URLSearchParams(currentResultParams(resetOffset));
-    const payload = await fetchJSON(`/api/results/preview?${params.toString()}`);
-    renderResultPreview(payload);
-    state.results.offset = Number(payload.offset || 0);
-    updateArtifactModeControls();
   }
 
   async function refreshLatestResults() {
+    const requestId = ++state.latestRequestId;
     const previousJobId = state.results.latestJob ? state.results.latestJob.job_id : "";
     const data = await fetchJSON("/api/results/latest");
+    if (requestId !== state.latestRequestId) return;
     const latest = data.latest_job;
     state.results.latestJob = latest;
 
     if (!latest) {
+      ++state.previewRequestId;
       setResultControlsEnabled(false);
       els.resultArtifactSelect.innerHTML = "";
       els.resultsMeta.textContent = "No completed jobs yet.";
@@ -1223,7 +1319,12 @@
     await previewSelectedArtifact(true);
   }
 
+  function canReplaceConfig() {
+    return !state.dirty || window.confirm("Discard unsaved config changes?");
+  }
+
   async function handleNewConfig() {
+    if (!canReplaceConfig()) return;
     const data = await fetchJSON("/api/config/default");
     setRawConfig(data.raw_config, "new default config", true);
   }
@@ -1255,8 +1356,9 @@
     setMessage(message, warnings.length > 0);
   }
 
-  async function handleLoadConfig() {
-    const path = els.configPath.value.trim();
+  async function handleLoadConfig(selectedPath = els.configPath.value.trim()) {
+    if (!canReplaceConfig()) return;
+    const path = selectedPath;
     if (!path) {
       throw new Error("Provide a config path to load.");
     }
@@ -1266,8 +1368,7 @@
       body: JSON.stringify({ path }),
     });
     const openedPath = data.path || path;
-    setRawConfig(data.raw_config, openedPath, true);
-    els.configPath.value = openedPath;
+    setRawConfig(data.raw_config, openedPath, true, openedPath);
     await applyExistingResultsOnConfigOpen(data.existing_results, `Loaded ${openedPath}.`);
   }
 
@@ -1276,8 +1377,7 @@
     if (!selectedPath) {
       throw new Error("Provide a config path to load.");
     }
-    els.configPath.value = selectedPath;
-    await handleLoadConfig();
+    await handleLoadConfig(selectedPath);
   }
 
   async function handleSaveConfig() {
@@ -1291,11 +1391,11 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path, config }),
     });
-    setRawConfig(data.raw_config, `saved ${data.path}`, true);
-    els.configPath.value = data.path || path;
+    setRawConfig(data.raw_config, `saved ${data.path}`, true, data.path || path);
   }
 
   async function handleUploadConfig(file) {
+    if (!canReplaceConfig()) return;
     const formData = new FormData();
     formData.append("file", file);
     const data = await fetchJSON("/api/config/upload", {
@@ -1371,8 +1471,17 @@
   }
 
   function bindDirtyTracking() {
-    els.guidedPanel.addEventListener("input", markDirty);
+    els.guidedPanel.addEventListener("input", (event) => {
+      if (typeof event.target.setCustomValidity === "function") event.target.setCustomValidity("");
+      markDirty();
+    });
     els.guidedPanel.addEventListener("change", markDirty);
+    window.addEventListener("beforeunload", (event) => {
+      if (state.dirty) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    });
   }
 
   function bindEvents() {
@@ -1445,7 +1554,6 @@
           const payload = await uploadGuidedFile(file, "gold");
           if (payload && payload.path) {
             setText("dataset_gold", payload.path);
-            syncGuidedToRaw();
             markDirty();
             setMessage(`Uploaded ${payload.filename} to ${payload.path}.`);
           }
@@ -1470,7 +1578,6 @@
           const payload = await uploadGuidedFile(file, "target");
           if (payload && payload.path) {
             setText("prediction_target", payload.path);
-            syncGuidedToRaw();
             markDirty();
             setMessage(`Uploaded ${payload.filename} to ${payload.path}.`);
           }
@@ -1500,6 +1607,8 @@
           return;
         }
         setText("emb_single_path", selected);
+        const model = state.embeddingCandidates.find((item) => item.path === selected);
+        if (model) setText("emb_single_kind", model.kind);
         markDirty();
       });
     }
@@ -1527,6 +1636,7 @@
 
     els.btnRefreshResults.addEventListener("click", async () => {
       try {
+        await recoverActiveJob();
         await refreshLatestResults();
         setMessage("Refreshed latest results.");
       } catch (error) {
@@ -1552,6 +1662,10 @@
       } catch (error) {
         setMessage(error.message, true);
       }
+    });
+
+    els.resultSearchQuery.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") els.btnSearchArtifact.click();
     });
 
     els.btnPrevPage.addEventListener("click", async () => {
@@ -1626,6 +1740,7 @@
     }
 
     try {
+      await recoverActiveJob();
       await refreshLatestResults();
     } catch (error) {
       setMessage(error.message, true);

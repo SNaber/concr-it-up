@@ -235,7 +235,7 @@ def test_anonymous_cookie_csrf_virtual_paths_and_allowlist(hosted_app):
     csrf = _csrf(client)
     embeddings = client.get("/api/fs/embeddings", base_url=HTTPS_ROOT).get_json()["candidates"]
     assert embeddings == [
-        {"label": "Synthetic mini vectors", "name": "mini.vec", "path": "embedding:mini"}
+        {"label": "Synthetic mini vectors", "name": "mini.vec", "path": "embedding:mini", "id": "mini", "kind": "vec"}
     ]
     assert str(hosted_app.config["GUI_REPO_ROOT"]) not in json.dumps(embeddings)
 

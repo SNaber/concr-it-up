@@ -7,7 +7,7 @@
     <title>KNN-ConcrItUp</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
   </head>
-  <body>
+  <body data-hosted="{{ 'true' if hosted_enabled else 'false' }}">
     <header class="hero">
       <div>
         <h1>KNN-ConcrItUp</h1>
@@ -89,15 +89,15 @@
                 </select>
                 <button id="btnRefreshEmbeddings" type="button" class="secondary compact">Refresh</button>
               </div>
-              <span class="field-hint">Select embedding file or type a path.</span>
+              <span class="field-hint">{% if hosted_enabled %}Select an available language model.{% else %}Select embedding file or type a path.{% endif %}</span>
             </label>
             <label class="field-label">
               <span class="label-head">embedding path <button type="button" class="help-trigger" data-help-key="space_path" aria-label="Help">i</button></span>
-              <input id="emb_single_path" />
+              <input id="emb_single_path" {% if hosted_enabled %}readonly{% endif %} />
             </label>
             <label class="field-label">
               <span class="label-head">embedding kind <button type="button" class="help-trigger" data-help-key="space_kind" aria-label="Help">i</button></span>
-              <select id="emb_single_kind">
+              <select id="emb_single_kind" {% if hosted_enabled %}disabled{% endif %}>
                 <option value="ft_bin">ft_bin</option>
                 <option value="vec">vec</option>
               </select>
@@ -145,23 +145,24 @@
                   <option value="token_contains">token_contains</option>
                 </select>
               </label>
-              <label class="field-label full">
+              <label class="field-label full{% if hosted_enabled %} hidden{% endif %}">
                 <span class="label-head">token_pattern <button type="button" class="help-trigger" data-help-key="pos_token_pattern" aria-label="Help">i</button></span>
                 <input id="pos_token_pattern" />
               </label>
             </div>
 
             <h3>Runtime</h3>
+            {% if hosted_enabled %}<p class="field-hint">The server manages output files and processing resources. Each prediction run includes full reports.</p>{% endif %}
             <div class="grid three">
-              <label class="field-label">
+              <label class="field-label{% if hosted_enabled %} hidden{% endif %}">
                 <span class="label-head">output_dir <button type="button" class="help-trigger" data-help-key="runtime_output_dir" aria-label="Help">i</button></span>
                 <input id="runtime_output_dir" />
               </label>
               <label class="field-label">
                 <span class="label-head">seed <button type="button" class="help-trigger" data-help-key="runtime_seed" aria-label="Help">i</button></span>
-                <input id="runtime_seed" type="number" />
+                <input id="runtime_seed" type="number" required min="0" max="4294967295" step="1" />
               </label>
-              <label class="field-label">
+              <label class="field-label{% if hosted_enabled %} hidden{% endif %}">
                 <span class="label-head">n_jobs <button type="button" class="help-trigger" data-help-key="runtime_n_jobs" aria-label="Help">i</button></span>
                 <input id="runtime_n_jobs" type="number" />
               </label>
@@ -171,32 +172,32 @@
             <div class="grid three">
               <label class="field-label">
                 <span class="label-head">test_size <button type="button" class="help-trigger" data-help-key="prediction_test_size" aria-label="Help">i</button></span>
-                <input id="prediction_test_size" type="number" step="0.01" min="0" max="1" />
+                <input id="prediction_test_size" type="number" required step="any" min="0" max="1" />
               </label>
               <label class="field-label">
                 <span class="label-head">cv_folds <button type="button" class="help-trigger" data-help-key="prediction_cv_folds" aria-label="Help">i</button></span>
-                <input id="prediction_cv_folds" type="number" min="2" />
+                <input id="prediction_cv_folds" type="number" required step="1" {% if hosted_enabled %}max="{{ hosted_limits.max_cv_folds }}"{% endif %} min="2" />
               </label>
               <label class="field-label">
                 <span class="label-head">topn_neighbors <button type="button" class="help-trigger" data-help-key="prediction_topn_neighbors" aria-label="Help">i</button></span>
-                <input id="prediction_topn_neighbors" type="number" min="1" />
+                <input id="prediction_topn_neighbors" type="number" required step="1" {% if hosted_enabled %}max="{{ hosted_limits.max_evidence_neighbors }}"{% endif %} min="1" />
               </label>
               <label class="field-label">
                 <span class="label-head">k_min <button type="button" class="help-trigger" data-help-key="prediction_k_min" aria-label="Help">i</button></span>
-                <input id="prediction_k_min" type="number" min="1" />
+                <input id="prediction_k_min" type="number" required step="1" {% if hosted_enabled %}max="{{ hosted_limits.max_k }}"{% endif %} min="1" />
               </label>
               <label class="field-label">
                 <span class="label-head">k_max <button type="button" class="help-trigger" data-help-key="prediction_k_max" aria-label="Help">i</button></span>
-                <input id="prediction_k_max" type="number" min="1" />
+                <input id="prediction_k_max" type="number" required step="1" {% if hosted_enabled %}max="{{ hosted_limits.max_k }}"{% endif %} min="1" />
               </label>
               <label class="field-label">
                 <span class="label-head">k_step <button type="button" class="help-trigger" data-help-key="prediction_k_step" aria-label="Help">i</button></span>
-                <input id="prediction_k_step" type="number" min="1" />
+                <input id="prediction_k_step" type="number" required step="1" min="1" />
               </label>
             </div>
 
-            <h3>Reports</h3>
-            <label class="field-label">
+            {% if not hosted_enabled %}<h3>Reports</h3>{% endif %}
+            <label class="field-label{% if hosted_enabled %} hidden{% endif %}">
               <span class="label-head">level <button type="button" class="help-trigger" data-help-key="reports_level" aria-label="Help">i</button></span>
               <select id="reports_level">
                 <option value="core">core</option>
