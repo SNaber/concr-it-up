@@ -124,7 +124,7 @@ def test_worker_success_writes_manifest_and_completes(tmp_path: Path) -> None:
     assert str(tmp_path) not in rendered
     assert manifest["checksums"]["inputs"]["gold"]["sha256"]
     assert manifest["checksums"]["embeddings"]["mini"]["sha256"]
-    assert manifest["normalization"]["unicode"].startswith("No Unicode normalization")
+    assert manifest["normalization"]["unicode"].startswith("Unicode NFC")
     assert manifest["command_argv"][-1] == "job/config.json"
     assert any("<server-path>" in line for line in record["logs"])
 

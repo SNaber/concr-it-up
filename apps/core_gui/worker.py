@@ -450,7 +450,7 @@ def build_run_manifest(
             "packages": _package_versions(),
         },
         "normalization": {
-            "unicode": "No Unicode normalization; core uses strip plus optional lowercase.",
+            "unicode": "Unicode NFC; core strips whitespace and optionally lowercases words.",
             "lowercase": bool(dataset.get("lowercase", True)),
             "pos_filter": dataset.get("pos_filter", {}),
         },
