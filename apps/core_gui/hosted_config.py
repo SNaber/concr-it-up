@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from concreteness_knn_core.text_input import normalize_word, open_text_input
+from concreteness_knn_core.table_input import open_gold_table
+from concreteness_knn_core.config import validate_numeric_settings
 
 from .job_store import JobPaths
 from .session_storage import (
@@ -221,6 +223,26 @@ class EmbeddingAllowlist:
         """Return deterministic browser-safe entries sorted by identifier."""
 
         return [self._entries[key].public_config() for key in sorted(self._entries)]
+
+    def resolve_selection(self, embeddings: Mapping[str, Any], *, allow_default: bool = False) -> EmbeddingSpec:
+        """Resolve public aliases consistently, including older configs with stale ids."""
+        if str(embeddings.get("mode", "single")) != "single":
+            raise HostedConfigError("Hosted runs support exactly one embedding space.")
+        active_id = str(embeddings.get("active_space", "")).strip()
+        spaces = embeddings.get("spaces", [])
+        if not isinstance(spaces, list) or any(not isinstance(item, Mapping) for item in spaces):
+            raise HostedConfigError("embeddings.spaces must be a list of objects.")
+        active = next((item for item in spaces if str(item.get("id", "")) == active_id),
+                      spaces[0] if len(spaces) == 1 else None)
+        path = str(active.get("path", "")).strip() if active else ""
+        if path.startswith("embedding:"):
+            selected_id = path.removeprefix("embedding:")
+            if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", selected_id):
+                raise HostedConfigError("Invalid hosted embedding alias.")
+            return self.get(selected_id)
+        if allow_default and active_id in {"", "default"} and not any(item.get("path") for item in spaces):
+            return self.get(self.public_entries()[0]["id"])
+        return self.get(active_id)
 
     def __len__(self) -> int:
         return len(self._entries)
@@ -497,41 +519,6 @@ def _inside_any(path: Path, roots: Iterable[Path]) -> bool:
     return False
 
 
-def _read_gold_table(path: Path) -> tuple[list[str], Iterable[list[str]]]:
-    """Open a gold table with extension-aware delimiter fallback.
-
-    The returned row iterator owns the open handle and closes it after normal
-    completion or an early consumer exit.
-    """
-
-    primary = "\t" if path.suffix.lower() in {".tsv", ".txt"} else ","
-    handle = open_text_input(path, newline="")
-    reader = csv.reader(handle, delimiter=primary)
-    try:
-        header = next(reader)
-    except StopIteration:
-        handle.close()
-        raise HostedConfigError("Gold file is empty.")
-    if len(header) <= 1:
-        handle.close()
-        secondary = "," if primary == "\t" else "\t"
-        handle = open_text_input(path, newline="")
-        reader = csv.reader(handle, delimiter=secondary)
-        try:
-            header = next(reader)
-        except StopIteration:
-            handle.close()
-            raise HostedConfigError("Gold file is empty.")
-
-    def rows() -> Iterable[list[str]]:
-        try:
-            yield from reader
-        finally:
-            handle.close()
-
-    return header, rows()
-
-
 def inspect_gold(config: Mapping[str, Any], limits: HostedLimits) -> dict[str, int]:
     """Validate gold columns, scores, POS policy, tokens, and row limits.
 
@@ -543,90 +530,88 @@ def inspect_gold(config: Mapping[str, Any], limits: HostedLimits) -> dict[str, i
     if not isinstance(dataset, Mapping):
         raise HostedConfigError("dataset must be an object.")
     path = Path(str(dataset.get("gold", "")))
-    header, rows = _read_gold_table(path)
-    word_column = str(dataset.get("word_column", "Word"))
-    score_column = str(dataset.get("score_column", "Conc.M"))
-    pos = dataset.get("pos_filter") if isinstance(dataset.get("pos_filter"), Mapping) else {}
-    if not word_column or not score_column or len(word_column) > 100 or len(score_column) > 100:
-        raise HostedConfigError("Gold column names must contain 1 to 100 characters.")
-    required = [word_column, score_column]
-    if bool(pos.get("enabled", False)):
-        pos_column = str(pos.get("pos_column", "Dom_Pos"))
-        if not pos_column or len(pos_column) > 100:
-            raise HostedConfigError("The POS column name must contain 1 to 100 characters.")
-        required.append(pos_column)
-    missing = [name for name in required if name not in header]
-    if missing:
-        raise HostedConfigError(f"Gold file is missing required column(s): {missing}")
-    index = {name: header.index(name) for name in required}
-    lowercase = bool(dataset.get("lowercase", True))
-    enabled = bool(pos.get("enabled", False))
-    match_mode = str(pos.get("match_mode", "exact")).strip().lower()
-    if match_mode not in {"exact", "token_contains"}:
-        raise HostedConfigError("POS match mode must be exact or token_contains.")
-    token_pattern = str(pos.get("token_pattern", DEFAULT_POS_TOKEN_PATTERN))
-    if token_pattern != DEFAULT_POS_TOKEN_PATTERN:
-        raise HostedConfigError("Hosted POS tokenization uses the server's fixed separator pattern.")
-    raw_tags = pos.get("tags", [])
-    if not isinstance(raw_tags, (list, tuple)) or len(raw_tags) > 50:
-        raise HostedConfigError("Hosted POS tags must be a list of at most 50 values.")
-    tags = {str(tag).strip().lower() for tag in raw_tags}
-    if any(len(tag) > limits.max_token_length for tag in tags):
-        raise HostedConfigError(
-            f"POS tags must not exceed {limits.max_token_length} characters."
-        )
-    if enabled and not tags:
-        raise HostedConfigError("POS tags must not be empty when filtering is enabled.")
+    with open_gold_table(path) as (header, rows):
+        word_column = str(dataset.get("word_column", "Word"))
+        score_column = str(dataset.get("score_column", "Conc.M"))
+        pos = dataset.get("pos_filter") if isinstance(dataset.get("pos_filter"), Mapping) else {}
+        if not word_column or not score_column or len(word_column) > 100 or len(score_column) > 100:
+            raise HostedConfigError("Gold column names must contain 1 to 100 characters.")
+        required = [word_column, score_column]
+        if bool(pos.get("enabled", False)):
+            pos_column = str(pos.get("pos_column", "Dom_Pos"))
+            if not pos_column or len(pos_column) > 100:
+                raise HostedConfigError("The POS column name must contain 1 to 100 characters.")
+            required.append(pos_column)
+        missing = [name for name in required if name not in header]
+        if missing:
+            raise HostedConfigError(f"Gold file is missing required column(s): {missing}")
+        index = {name: header.index(name) for name in required}
+        lowercase = bool(dataset.get("lowercase", True))
+        enabled = bool(pos.get("enabled", False))
+        match_mode = str(pos.get("match_mode", "exact")).strip().lower()
+        if match_mode not in {"exact", "token_contains"}:
+            raise HostedConfigError("POS match mode must be exact or token_contains.")
+        token_pattern = str(pos.get("token_pattern", DEFAULT_POS_TOKEN_PATTERN))
+        if enabled and token_pattern != DEFAULT_POS_TOKEN_PATTERN:
+            raise HostedConfigError("Hosted POS tokenization uses the server's fixed separator pattern.")
+        raw_tags = pos.get("tags", [])
+        if not isinstance(raw_tags, (list, tuple)) or len(raw_tags) > 50:
+            raise HostedConfigError("Hosted POS tags must be a list of at most 50 values.")
+        tags = {str(tag).strip().lower() for tag in raw_tags}
+        if any(len(tag) > limits.max_token_length for tag in tags):
+            raise HostedConfigError(
+                f"POS tags must not exceed {limits.max_token_length} characters."
+            )
+        if enabled and not tags:
+            raise HostedConfigError("POS tags must not be empty when filtering is enabled.")
 
-    normalized_words: set[str] = set()
-    source_rows = 0
-    retained_rows = 0
-    for row in rows:
-        source_rows += 1
-        if source_rows > limits.max_gold_rows:
-            raise HostedConfigError(
-                f"Gold data exceed the {limits.max_gold_rows:,}-row hosted limit."
-            )
-        if len(row) < len(header):
-            row = [*row, *([""] * (len(header) - len(row)))]
-        values = {name: row[column_index].strip() for name, column_index in index.items()}
-        if any(not values[name] for name in required):
-            continue
-        if enabled:
-            pos_value = values[str(pos.get("pos_column", "Dom_Pos"))].lower()
-            matches = (
-                pos_value in tags
-                if match_mode == "exact"
-                else bool(tags.intersection(token for token in re.split(DEFAULT_POS_TOKEN_PATTERN, pos_value) if token))
-            )
-            if not matches:
+        normalized_words: set[str] = set()
+        source_rows = 0
+        retained_rows = 0
+        for row in rows:
+            source_rows += 1
+            if source_rows > limits.max_gold_rows:
+                raise HostedConfigError(
+                    f"Gold data exceed the {limits.max_gold_rows:,}-row hosted limit."
+                )
+            values = {name: row[column_index].strip() for name, column_index in index.items()}
+            if any(not values[name] for name in required):
                 continue
-        try:
-            score = float(values[score_column])
-        except ValueError as exc:
-            raise HostedConfigError("Gold scores must be numeric.") from exc
-        if not math.isfinite(score):
-            raise HostedConfigError("Gold scores must be finite.")
-        word = normalize_word(values[word_column], lowercase)
-        if not word:
-            continue
-        if len(word) > limits.max_token_length:
-            raise HostedConfigError(
-                f"Gold token exceeds the {limits.max_token_length}-character limit."
-            )
-        normalized_words.add(word)
-        retained_rows += 1
-        if retained_rows > limits.max_gold_rows:
-            raise HostedConfigError(
-                f"Gold data exceed the {limits.max_gold_rows:,}-row hosted limit."
-            )
-    if not normalized_words:
-        raise HostedConfigError("No usable gold words remain after normalization/filtering.")
-    return {
-        "source_rows": source_rows,
-        "retained_rows": retained_rows,
-        "normalized_unique_rows": len(normalized_words),
-    }
+            if enabled:
+                pos_value = values[str(pos.get("pos_column", "Dom_Pos"))].lower()
+                matches = (
+                    pos_value in tags
+                    if match_mode == "exact"
+                    else bool(tags.intersection(token for token in re.split(DEFAULT_POS_TOKEN_PATTERN, pos_value) if token))
+                )
+                if not matches:
+                    continue
+            try:
+                score = float(values[score_column])
+            except ValueError as exc:
+                raise HostedConfigError("Gold scores must be numeric.") from exc
+            if not math.isfinite(score):
+                raise HostedConfigError("Gold scores must be finite.")
+            word = normalize_word(values[word_column], lowercase)
+            if not word:
+                continue
+            if len(word) > limits.max_token_length:
+                raise HostedConfigError(
+                    f"Gold token exceeds the {limits.max_token_length}-character limit."
+                )
+            normalized_words.add(word)
+            retained_rows += 1
+            if retained_rows > limits.max_gold_rows:
+                raise HostedConfigError(
+                    f"Gold data exceed the {limits.max_gold_rows:,}-row hosted limit."
+                )
+        if not normalized_words:
+            raise HostedConfigError("No usable gold words remain after normalization/filtering.")
+        return {
+            "source_rows": source_rows,
+            "retained_rows": retained_rows,
+            "normalized_unique_rows": len(normalized_words),
+        }
 
 
 def inspect_target(path: Path, *, lowercase: bool, limits: HostedLimits) -> dict[str, int]:
@@ -794,25 +779,8 @@ class HostedPolicy:
 
         if task not in {"prediction-run", "prediction-holdout"}:
             raise HostedConfigError("Unknown hosted task.")
-        mode = str(embeddings.get("mode", "single"))
-        if mode != "single":
-            raise HostedConfigError("Hosted runs support exactly one embedding space.")
-        active_id = str(embeddings.get("active_space", "")).strip()
-        submitted_spaces = [
-            item for item in embeddings.get("spaces", []) if isinstance(item, Mapping)
-        ]
-        active_space = next(
-            (item for item in submitted_spaces if str(item.get("id", "")) == active_id),
-            submitted_spaces[0] if len(submitted_spaces) == 1 else None,
-        )
-        public_path = str(active_space.get("path", "")).strip() if active_space else ""
-        if public_path.startswith("embedding:"):
-            selected_id = public_path.removeprefix("embedding:")
-            if not selected_id or "/" in selected_id or "\\" in selected_id:
-                raise HostedConfigError("Invalid hosted embedding alias.")
-        else:
-            selected_id = active_id
-        spec = self.settings.embedding_allowlist.get(selected_id)
+        validate_numeric_settings(cfg)
+        spec = self.settings.embedding_allowlist.resolve_selection(embeddings)
         embeddings["mode"] = "single"
         embeddings["active_space"] = spec.id
         embeddings["spaces"] = [spec.core_config()]

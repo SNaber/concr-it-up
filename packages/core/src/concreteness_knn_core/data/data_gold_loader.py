@@ -2,31 +2,20 @@
 
 from __future__ import annotations
 
-import csv
 import re
 from typing import List, Tuple
 
 import numpy as np
 import pandas as pd
 
-from concreteness_knn_core.text_input import normalize_word, open_text_input
+from concreteness_knn_core.text_input import normalize_word
+from concreteness_knn_core.table_input import open_gold_table
 
 
 def _read_gold_table(path_text: str) -> pd.DataFrame:
     """Read gold table with extension-aware delimiter fallback."""
-    path = str(path_text).strip().lower()
-    primary_sep = "\t" if path.endswith((".tsv", ".txt")) else ","
-    secondary_sep = "," if primary_sep == "\t" else "\t"
-
-    with open_text_input(path_text, newline="") as handle:
-        # Lexical items such as NA, null, and 001 are text, not missing values
-        # or numbers. Only scores are converted below.
-        header = next(csv.reader(handle, delimiter=primary_sep), [])
-        # Decide from the header before parsing data; punctuation in words can
-        # otherwise make the wrong delimiter fail before fallback is possible.
-        sep = primary_sep if len(header) > 1 else secondary_sep
-        handle.seek(0)
-        return pd.read_csv(handle, sep=sep, dtype=str, keep_default_na=False)
+    with open_gold_table(path_text) as (header, rows):
+        return pd.DataFrame(rows, columns=header, dtype=str)
 
 
 def _build_pos_mask(series: pd.Series, tags: set[str], match_mode: str, token_pattern: str) -> pd.Series:

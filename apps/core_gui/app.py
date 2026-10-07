@@ -28,9 +28,10 @@ from concreteness_knn_core.config import (  # noqa: E402
     default_config as core_default_config,
     load_config as core_load_config,
     validate_config as core_validate_config,
+    validate_numeric_settings,
 )
 from concreteness_knn_core.prediction import PredictionPipeline  # noqa: E402
-from concreteness_knn_core.text_input import decode_text_input, open_text_input  # noqa: E402
+from concreteness_knn_core.text_input import decode_text_input, open_text_input, normalize_word  # noqa: E402
 
 from .hosted_config import (  # noqa: E402
     HostedConfigError,
@@ -257,7 +258,8 @@ def _embedding_candidates(repo_root: Path) -> list[dict[str, str]]:
         if label_with_parent_counts[label] > 1:
             disambiguated_seen[label] = disambiguated_seen.get(label, 0) + 1
             label = f"{label} [{disambiguated_seen[label]}]"
-        result.append({"label": label, "name": item["name"], "path": item["path"]})
+        result.append({"label": label, "name": item["name"], "path": item["path"],
+                       "id": item["path"], "kind": "ft_bin" if item["path"].lower().endswith(".bin") else "vec"})
 
     result.sort(key=lambda row: (row["label"].lower(), row["path"].lower()))
     return result
@@ -361,7 +363,7 @@ def _preview_csv(path: Path, query: str, offset: int, limit: int, *, apply_query
     is restricted to the first recognized word-like column.
     """
 
-    query_lc = query.lower() if apply_query else ""
+    query_lc = normalize_word(query, True) if apply_query else ""
     rows: list[dict[str, str]] = []
     columns: list[str] = []
     total_matches = 0
@@ -375,7 +377,7 @@ def _preview_csv(path: Path, query: str, offset: int, limit: int, *, apply_query
             if query_lc:
                 if not word_search_column:
                     continue
-                if query_lc not in str(ordered_row.get(word_search_column, "")).lower():
+                if query_lc not in normalize_word(ordered_row.get(word_search_column, ""), True):
                     continue
 
             if offset <= total_matches < offset + limit:
@@ -396,13 +398,13 @@ def _preview_csv(path: Path, query: str, offset: int, limit: int, *, apply_query
 def _preview_text(path: Path, query: str, offset: int, limit: int) -> dict[str, Any]:
     """Return an exact, memory-bounded page from a streamed text artifact."""
 
-    query_lc = query.lower()
+    query_lc = normalize_word(query, True)
     window: list[tuple[int, str]] = []
     total_matches = 0
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         for line_idx, raw_line in enumerate(handle, start=1):
             line = raw_line.rstrip("\r\n")
-            if query_lc and query_lc not in line.lower():
+            if query_lc and query_lc not in normalize_word(line, True):
                 continue
             if offset <= total_matches < offset + limit:
                 window.append((line_idx, line))
@@ -863,19 +865,14 @@ def create_app(
         return {"found": False, "job_id": None, "artifacts": {}, "warnings": []}
 
     def publicize_hosted_config(config: dict[str, Any]) -> dict[str, Any]:
+        validate_numeric_settings(config)
         if not hosted.enabled:
             return config
         cfg = copy.deepcopy(config)
-        public_entries = {
-            str(item["id"]): item for item in hosted.embedding_allowlist.public_entries()
-        }
         embeddings = cfg.get("embeddings")
-        if not isinstance(embeddings, dict) or not public_entries:
+        if not isinstance(embeddings, dict) or not len(hosted.embedding_allowlist):
             return cfg
-        active_id = str(embeddings.get("active_space", ""))
-        selected = public_entries.get(active_id)
-        if selected is None:
-            selected = public_entries[sorted(public_entries)[0]]
+        selected = hosted.embedding_allowlist.resolve_selection(embeddings, allow_default=True).public_config()
         embeddings["mode"] = "single"
         embeddings["active_space"] = selected["id"]
         embeddings["spaces"] = [
@@ -887,6 +884,11 @@ def create_app(
             }
         ]
         cfg.setdefault("runtime", {})["n_jobs"] = 1
+        cfg.setdefault("reports", {})["level"] = "full"
+        pos = cfg.setdefault("dataset", {}).setdefault("pos_filter", {})
+        if pos.get("enabled") and pos.get("token_pattern", r"[,;/| ]+") != r"[,;/| ]+":
+            raise HostedConfigError("Hosted POS tokenization uses the server's fixed separator pattern.")
+        pos["token_pattern"] = r"[,;/| ]+"
         return cfg
 
     def resolve_hosted_config_path(raw_path: object, *, for_write: bool) -> tuple[Path, str]:
@@ -961,6 +963,7 @@ def create_app(
             repo_root=str(app.config["GUI_REPO_ROOT"]),
             csrf_token=str(session.get("csrf_token", "")),
             hosted_enabled=hosted.enabled,
+            hosted_limits=hosted.limits,
             retention_hours=f"{hosted.limits.retention_hours:g}",
         )
 
@@ -1026,7 +1029,7 @@ def create_app(
     def api_config_save():
         try:
             payload = request.get_json(silent=True) or {}
-            config = _coerce_config_object(payload.get("config"))
+            config = publicize_hosted_config(_coerce_config_object(payload.get("config")))
             if hosted.enabled:
                 require_storage_admission()
                 path_resolver().activate_owner_storage()
@@ -1160,7 +1163,7 @@ def create_app(
             if not raw_config:
                 raise GUIError("Provide either query parameter 'path' or 'config'.")
             payload = json.loads(raw_config)
-            raw = _coerce_config_object(payload)
+            raw = publicize_hosted_config(_coerce_config_object(payload))
             body = json.dumps(raw, indent=2) + "\n"
             return Response(
                 body,
@@ -1179,6 +1182,8 @@ def create_app(
                         "label": str(item["label"]),
                         "name": str(item["filename"]),
                         "path": str(item["path"]),
+                        "id": str(item["id"]),
+                        "kind": str(item["kind"]),
                     }
                     for item in hosted.embedding_allowlist.public_entries()
                 ]
@@ -1366,6 +1371,14 @@ def create_app(
                 return ok({"error": "prediction-holdout requires live editor config in payload.config."}, status=400)
             job_id = submit_prediction_job(payload, task="prediction-holdout")
             return ok({"job_id": job_id, "status": "queued"}, status=202)
+        except Exception as exc:
+            return fail(exc)
+
+    @app.route("/api/jobs/active", methods=["GET"])
+    def api_job_active():
+        try:
+            active = jobs.active_job(owner=request_owner())
+            return ok({"active_job": public_job(active) if active is not None else None})
         except Exception as exc:
             return fail(exc)
 

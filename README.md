@@ -56,6 +56,15 @@ lowercasing controlled by `dataset.lowercase`. Accents, umlauts, punctuation,
 and non-Latin scripts are preserved; equivalent Unicode spellings match.
 CSV words such as `NA`, `null`, and `001` remain literal text. Successful
 decoding does not guarantee that a word exists in the chosen embedding model.
+Gold tables require unique, non-empty column names and the same number of fields
+in every record. Quote fields containing delimiters; use an explicit empty field
+for a missing value. Malformed rows are rejected with a line number.
+
+Saved configurations preserve the selected model. Result searches match canonical
+Unicode spellings and reset pagination when the query changes. Job monitoring
+reconnects after temporary connection failures and recovers active jobs on reload.
+In hosted mode, output locations, processing resources, full reports, and POS
+separators are managed by the server; only supported options are editable.
 
 The development server is intended for local use. A concise overview of the
 included production templates is available in `docs/deployment-bwcloud.md`.
