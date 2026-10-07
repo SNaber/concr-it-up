@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from concreteness_knn_core.text_input import normalize_word, open_text_input
+
 from .job_store import JobPaths
 from .session_storage import (
     SessionStorageError,
@@ -503,7 +505,7 @@ def _read_gold_table(path: Path) -> tuple[list[str], Iterable[list[str]]]:
     """
 
     primary = "\t" if path.suffix.lower() in {".tsv", ".txt"} else ","
-    handle = path.open("r", encoding="utf-8-sig", newline="")
+    handle = open_text_input(path, newline="")
     reader = csv.reader(handle, delimiter=primary)
     try:
         header = next(reader)
@@ -513,7 +515,7 @@ def _read_gold_table(path: Path) -> tuple[list[str], Iterable[list[str]]]:
     if len(header) <= 1:
         handle.close()
         secondary = "," if primary == "\t" else "\t"
-        handle = path.open("r", encoding="utf-8-sig", newline="")
+        handle = open_text_input(path, newline="")
         reader = csv.reader(handle, delimiter=secondary)
         try:
             header = next(reader)
@@ -533,7 +535,7 @@ def _read_gold_table(path: Path) -> tuple[list[str], Iterable[list[str]]]:
 def inspect_gold(config: Mapping[str, Any], limits: HostedLimits) -> dict[str, int]:
     """Validate gold columns, scores, POS policy, tokens, and row limits.
 
-    Counts follow the core loader's strip and optional lowercase semantics so
+    Counts follow the core loader's Unicode and optional lowercase semantics so
     admission checks describe the data the model will consume.
     """
 
@@ -605,8 +607,7 @@ def inspect_gold(config: Mapping[str, Any], limits: HostedLimits) -> dict[str, i
             raise HostedConfigError("Gold scores must be numeric.") from exc
         if not math.isfinite(score):
             raise HostedConfigError("Gold scores must be finite.")
-        word = values[word_column].strip()
-        word = word.lower() if lowercase else word
+        word = normalize_word(values[word_column], lowercase)
         if not word:
             continue
         if len(word) > limits.max_token_length:
@@ -634,13 +635,12 @@ def inspect_target(path: Path, *, lowercase: bool, limits: HostedLimits) -> dict
     source_rows = 0
     retained_rows = 0
     normalized_unique: set[str] = set()
-    with path.open("r", encoding="utf-8") as handle:
+    with open_text_input(path) as handle:
         for line in handle:
             source_rows += 1
-            token = line.strip()
+            token = normalize_word(line, lowercase)
             if not token:
                 continue
-            token = token.lower() if lowercase else token
             if len(token) > limits.max_token_length:
                 raise HostedConfigError(
                     f"Target token exceeds the {limits.max_token_length}-character limit."
@@ -676,7 +676,7 @@ def _inspect_scored_csv(
     and a source-specific row ceiling without retaining table rows.
     """
 
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+    with open_text_input(path, newline="") as handle:
         reader = csv.DictReader(handle)
         fieldnames = list(reader.fieldnames or [])
         missing = [name for name in (word_column, value_column) if name not in fieldnames]
@@ -696,8 +696,7 @@ def _inspect_scored_csv(
             raw_value = row.get(value_column)
             if raw_word is None or not str(raw_word).strip():
                 raise HostedConfigError(f"{source_name} words must be non-empty.")
-            word = str(raw_word).strip()
-            word = word.lower() if lowercase else word
+            word = normalize_word(raw_word, lowercase)
             if len(word) > max_token_length:
                 raise HostedConfigError(
                     f"{source_name} token exceeds the {max_token_length}-character limit."

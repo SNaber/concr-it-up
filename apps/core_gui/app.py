@@ -30,6 +30,7 @@ from concreteness_knn_core.config import (  # noqa: E402
     validate_config as core_validate_config,
 )
 from concreteness_knn_core.prediction import PredictionPipeline  # noqa: E402
+from concreteness_knn_core.text_input import decode_text_input, open_text_input  # noqa: E402
 
 from .hosted_config import (  # noqa: E402
     HostedConfigError,
@@ -145,7 +146,8 @@ def _resolve_json_path(repo_root: Path, user_path: str | None, *, allow_nonexist
 
 def _load_raw_json(path: Path) -> dict[str, Any]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        with open_text_input(path) as handle:
+            payload = json.load(handle)
     except json.JSONDecodeError as exc:
         raise GUIError(f"Invalid JSON in {path}: {exc}") from exc
     if not isinstance(payload, dict):
@@ -1057,7 +1059,7 @@ def create_app(
             uploaded = request.files["file"]
             if uploaded.filename is None:
                 raise GUIError("Uploaded file name is missing.")
-            text = read_upload_bytes(uploaded).decode("utf-8")
+            text = decode_text_input(read_upload_bytes(uploaded))
             payload = json.loads(text)
             raw = _coerce_config_object(payload)
             resolved = _deep_merge(core_default_config(), raw)
@@ -1100,6 +1102,7 @@ def create_app(
             fallback = "gold.csv" if field_target == "gold" else "target.txt"
             safe_name = _sanitize_upload_filename(uploaded.filename, fallback=fallback)
             payload = read_upload_bytes(uploaded)
+            decode_text_input(payload)
             require_storage_admission()
             if hosted.enabled:
                 resolver = path_resolver()

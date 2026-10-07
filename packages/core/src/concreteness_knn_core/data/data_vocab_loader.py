@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import Iterable, List, Sequence
 
-from .data_gold_loader import normalize_word
+from concreteness_knn_core.text_input import normalize_word, open_text_input
 
 
 def load_vocab_words(vocab_path: str, lowercase: bool) -> List[str]:
     """Load one token per line vocabulary file."""
     words: List[str] = []
-    with open(vocab_path, "r", encoding="utf-8") as handle:
+    with open_text_input(vocab_path) as handle:
         for line in handle:
             token = line.strip()
             if token:

@@ -47,7 +47,11 @@ class TestBatchedTopK(unittest.TestCase):
             batch_size=batch_size,
         )
         np.testing.assert_array_equal(actual_idx, expected_idx)
-        np.testing.assert_allclose(actual_dist, expected_dist, rtol=1e-6, atol=1e-7)
+        # Different BLAS batch shapes can differ by a float32 rounding step,
+        # especially for self-distances near zero where relative tolerance vanishes.
+        np.testing.assert_allclose(
+            actual_dist, expected_dist, rtol=1e-6, atol=2 * np.finfo(np.float32).eps
+        )
         self.assertEqual(actual_idx.dtype, expected_idx.dtype)
         self.assertEqual(actual_dist.dtype, expected_dist.dtype)
 

@@ -47,6 +47,16 @@ the word and score columns, an embedding model, and a target vocabulary with
 one token per line. It provides evaluation summaries, cross-validation
 results, vocabulary predictions, neighbor evidence, and OOV diagnostics.
 
+Use UTF-8 text files (with or without a byte-order marker). UTF-16 and UTF-32
+files are also accepted when they include a byte-order marker. For older
+spreadsheet exports, choose **CSV UTF-8**; unsupported encodings and NUL
+characters produce an error instead of silently changing words.
+Words are trimmed and normalized to Unicode NFC before matching, with
+lowercasing controlled by `dataset.lowercase`. Accents, umlauts, punctuation,
+and non-Latin scripts are preserved; equivalent Unicode spellings match.
+CSV words such as `NA`, `null`, and `001` remain literal text. Successful
+decoding does not guarantee that a word exists in the chosen embedding model.
+
 The development server is intended for local use. A concise overview of the
 included production templates is available in `docs/deployment-bwcloud.md`.
 

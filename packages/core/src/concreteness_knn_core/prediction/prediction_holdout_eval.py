@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from concreteness_knn_core.knn import rmse, safe_spearman
+from concreteness_knn_core.text_input import normalize_word, open_text_input
 
 from .prediction_types import PredictionHoldoutResult
 
@@ -44,8 +45,10 @@ class PredictionHoldoutEvaluator:
         prediction_cfg = config["prediction"]
         reports_cfg = config["reports"]
 
-        holdout = pd.read_csv(str(prediction_cfg["holdout"]))
-        pred = pd.read_csv(str(prediction_cfg["predictions_csv"]))
+        with open_text_input(str(prediction_cfg["holdout"]), newline="") as handle:
+            holdout = pd.read_csv(handle, dtype=str, keep_default_na=False)
+        with open_text_input(str(prediction_cfg["predictions_csv"]), newline="") as handle:
+            pred = pd.read_csv(handle, dtype=str, keep_default_na=False)
 
         word_column = str(dataset_cfg["word_column"])
         score_column = str(dataset_cfg["score_column"])
@@ -60,11 +63,9 @@ class PredictionHoldoutEvaluator:
         if prediction_column not in pred.columns:
             raise ValueError(f"Prediction column '{prediction_column}' not found in {prediction_cfg['predictions_csv']}.")
 
-        gold_word = holdout[word_column].astype(str).str.strip()
-        pred_word = pred["word"].astype(str).str.strip()
-        if bool(dataset_cfg.get("lowercase", True)):
-            gold_word = gold_word.str.lower()
-            pred_word = pred_word.str.lower()
+        lowercase = bool(dataset_cfg.get("lowercase", True))
+        gold_word = holdout[word_column].map(lambda word: normalize_word(word, lowercase))
+        pred_word = pred["word"].map(lambda word: normalize_word(word, lowercase))
 
         self._raise_if_duplicate_words(gold_word, "holdout")
         self._raise_if_duplicate_words(pred_word, "predictions_csv")

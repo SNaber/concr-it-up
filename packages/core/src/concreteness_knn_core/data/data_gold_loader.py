@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
+import csv
 import re
 from typing import List, Tuple
 
 import numpy as np
 import pandas as pd
 
-
-def normalize_word(word: str, lowercase: bool) -> str:
-    """Normalize a token using strip + optional lowercasing."""
-    token = str(word).strip()
-    return token.lower() if lowercase else token
+from concreteness_knn_core.text_input import normalize_word, open_text_input
 
 
 def _read_gold_table(path_text: str) -> pd.DataFrame:
@@ -21,13 +18,15 @@ def _read_gold_table(path_text: str) -> pd.DataFrame:
     primary_sep = "\t" if path.endswith((".tsv", ".txt")) else ","
     secondary_sep = "," if primary_sep == "\t" else "\t"
 
-    first = pd.read_csv(path_text, sep=primary_sep)
-    if len(first.columns) > 1:
-        return first
-
-    # Fallback for mislabeled extensions.
-    second = pd.read_csv(path_text, sep=secondary_sep)
-    return second if len(second.columns) > 1 else first
+    with open_text_input(path_text, newline="") as handle:
+        # Lexical items such as NA, null, and 001 are text, not missing values
+        # or numbers. Only scores are converted below.
+        header = next(csv.reader(handle, delimiter=primary_sep), [])
+        # Decide from the header before parsing data; punctuation in words can
+        # otherwise make the wrong delimiter fail before fallback is possible.
+        sep = primary_sep if len(header) > 1 else secondary_sep
+        handle.seek(0)
+        return pd.read_csv(handle, sep=sep, dtype=str, keep_default_na=False)
 
 
 def _build_pos_mask(series: pd.Series, tags: set[str], match_mode: str, token_pattern: str) -> pd.Series:
@@ -58,22 +57,25 @@ def load_gold_df(dataset_cfg: dict) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Missing required column(s) {missing} in {gold}.")
 
+    df = df[required].copy()
+    for column in required:
+        df = df[df[column].str.strip().ne("")]
+
     if bool(pos_filter.get("enabled", False)):
         pos_column = str(pos_filter.get("pos_column", "Dom_Pos"))
         tags = {str(tag).strip().lower() for tag in pos_filter.get("tags", ["Noun"])}
-        df = df[[word_column, score_column, pos_column]].dropna()
         if match_mode not in {"exact", "token_contains"}:
             raise ValueError("dataset.pos_filter.match_mode must be 'exact' or 'token_contains'.")
         mask = _build_pos_mask(df[pos_column], tags=tags, match_mode=match_mode, token_pattern=token_pattern)
         df = df[mask]
-    else:
-        df = df[[word_column, score_column]].dropna()
 
     if df.empty:
         raise ValueError("No rows left after loading/filtering gold data.")
 
     df[word_column] = df[word_column].astype(str).map(lambda value: normalize_word(value, lowercase))
     df[score_column] = df[score_column].astype(float)
+    if not np.isfinite(df[score_column]).all():
+        raise ValueError("Gold scores must be finite.")
     return df.groupby(word_column, as_index=False)[score_column].mean()
 
 
