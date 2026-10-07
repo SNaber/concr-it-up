@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict
 
+from .text_input import open_text_input
+
 SCHEMA_VERSION = "7.0.0"
 
 _LEGACY_KEY_RENAMES: dict[tuple[str, ...], str] = {
@@ -122,7 +124,8 @@ def init_template(task: str) -> Dict[str, Any]:
 
 def load_config(config_path: str) -> Dict[str, Any]:
     """Load JSON config and merge it on top of core defaults."""
-    payload = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    with open_text_input(config_path) as handle:
+        payload = json.load(handle)
     if not isinstance(payload, dict):
         raise ValueError("Config file must contain a JSON object.")
     return _deep_merge(default_config(), payload)

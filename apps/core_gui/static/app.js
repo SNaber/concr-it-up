@@ -12,8 +12,8 @@
   const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || "";
 
   const FIELD_HELP = {
-    dataset_gold: "Add gold file (CSV/TSV); set word/score columns.",
-    dataset_lowercase: "If enabled, words are normalized to lowercase before matching.",
+  dataset_gold: "Add gold file (CSV/TSV); set word/score columns. UTF-8 recommended.",
+  dataset_lowercase: "If enabled, words are lowercased before matching. Equivalent Unicode spellings always match; accents and punctuation are preserved.",
     dataset_word_column: "Word column name from the gold file.",
     dataset_score_column: "Numeric score column name from the gold file.",
     pos_enabled: "Enable POS-based filtering before model training.",
@@ -33,7 +33,7 @@
     prediction_k_min: "Minimum k candidate (>=1).",
     prediction_k_max: "Maximum k candidate (>=k_min).",
     prediction_k_step: "Step size for k grid (>=1).",
-    prediction_target: "Add targets file (one token per line).",
+  prediction_target: "Add targets file (one token per line). UTF-8 recommended.",
     reports_level: "core = essential artifacts, full = includes OOV and vocab diagnostics.",
   };
 

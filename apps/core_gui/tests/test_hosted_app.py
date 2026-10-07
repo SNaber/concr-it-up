@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import io
+import csv
 import json
 import os
 import re
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -111,6 +113,103 @@ def _hosted_config(client, gold: str, target: str) -> dict:
         }
     )
     return config
+
+
+@pytest.mark.parametrize("encoding", ["utf-8-sig", "utf-16", "utf-32"])
+def test_unicode_uploads_are_readable_by_the_worker(hosted_app, encoding):
+    from concreteness_knn_core.data import load_gold_df, load_vocab_words
+
+    client = hosted_app.test_client()
+    csrf = _csrf(client)
+    for field, name, text in [
+        ("gold", "gold.csv", "Word,Conc.M\nÄpfel,3\ncafe\u0301,2\nNA,1\n"),
+        ("target", "target.txt", "Äpfel\ncafe\u0301\nNA\n"),
+    ]:
+        payload = text.encode(encoding)
+        response = _post(client, "/api/fs/upload", csrf, data={
+            "field_target": field, "file": (io.BytesIO(payload), name),
+        }, content_type="multipart/form-data")
+        assert response.status_code == 201
+        saved = list(hosted_app.config["HOSTED_SETTINGS"].session_root.rglob(name))
+        assert len(saved) == 1
+        assert saved[0].read_bytes() == payload
+        if field == "target":
+            assert load_vocab_words(str(saved[0]), lowercase=False) == ["Äpfel", "café", "NA"]
+        else:
+            frame = load_gold_df({"gold": str(saved[0]), "word_column": "Word",
+                                  "score_column": "Conc.M", "lowercase": False})
+            assert set(frame["Word"]) == {"Äpfel", "café", "NA"}
+
+
+@pytest.mark.parametrize("field", ["gold", "target"])
+@pytest.mark.parametrize("payload,message", [(b"caf\xe9\n", "UTF-8"),
+                                             (b"apple\x00suffix\n", "NUL"),
+                                             (b"\xff\xfeA", "UTF-8")])
+def test_invalid_character_upload_fails_before_saving(hosted_app, field, payload, message):
+    client = hosted_app.test_client()
+    csrf = _csrf(client)
+    response = _post(client, "/api/fs/upload", csrf, data={
+        "field_target": field, "file": (io.BytesIO(payload), "broken.txt"),
+    }, content_type="multipart/form-data")
+    assert response.status_code == 400
+    assert message in response.get_json()["error"]
+    assert not list(hosted_app.config["HOSTED_SETTINGS"].session_root.rglob("broken.txt"))
+
+
+@pytest.mark.parametrize("encoding", ["utf-8-sig", "utf-16", "utf-32"])
+def test_config_upload_accepts_unicode_markers(hosted_app, encoding):
+    client = hosted_app.test_client()
+    csrf = _csrf(client)
+    payload = json.dumps({"dataset": {"word_column": "Wörter"}}, ensure_ascii=False).encode(encoding)
+    response = _post(client, "/api/config/upload", csrf,
+                     data={"file": (io.BytesIO(payload), "config.json")},
+                     content_type="multipart/form-data")
+    assert response.status_code == 200
+    assert response.get_json()["raw_config"]["dataset"]["word_column"] == "Wörter"
+
+
+def test_unicode_upload_prediction_preview_and_download(hosted_app):
+    """Submit through HTTP and run the actual worker/CLI, without a fake model executor."""
+    hosted = hosted_app.config["HOSTED_SETTINGS"]
+    words = ["äpfel", "straße", "café", "l’été", "o'neill", "東京", "قلب", "na"]
+    (hosted.repo_root / "embeddings" / "mini.vec").write_text(
+        "8 2\n" + "\n".join(f"{word} {i + 1}.0 {8 - i}.0" for i, word in enumerate(words)) + "\n",
+        encoding="utf-8",
+    )
+    client = hosted_app.test_client()
+    csrf = _csrf(client)
+    paths = {}
+    for field, name, payload in [
+        ("gold", "gold.csv", ("Word,Conc.M\n" + "\n".join(
+            f"{word},{1 + i / 2}" for i, word in enumerate(words))).encode("utf-16")),
+        ("target", "target.txt", "\n".join(words).replace("café", "cafe\u0301").encode("utf-8-sig")),
+    ]:
+        uploaded = _post(client, "/api/fs/upload", csrf, data={
+            "field_target": field, "file": (io.BytesIO(payload), name),
+        }, content_type="multipart/form-data")
+        assert uploaded.status_code == 201
+        paths[field] = uploaded.get_json()["path"]
+    config = _hosted_config(client, paths["gold"], paths["target"])
+    submitted = _post(client, "/api/jobs/prediction-run", csrf, json={"config": config})
+    assert submitted.status_code == 202, submitted.get_json()
+    job_id = submitted.get_json()["job_id"]
+    settings = WorkerSettings(
+        repo_root=hosted.repo_root, db_path=hosted.db_path, job_root=hosted.job_root,
+        entrypoint=str(Path(sys.executable).with_name("concreteness-knn-core")),
+        worker_id="unicode-test-worker",
+    )
+    assert JobWorker(hosted_app.extensions["concritup_job_store"], settings).run_once()
+    completed = client.get(f"/api/jobs/{job_id}", base_url=HTTPS_ROOT)
+    assert completed.get_json()["status"] == "done", completed.get_json()
+    query = {"job_id": job_id, "artifact_key": "vocab_predictions"}
+    preview = client.get("/api/results/preview", base_url=HTTPS_ROOT, query_string=query)
+    assert preview.status_code == 200
+    assert [row["word"] for row in preview.get_json()["rows"]] == words
+    download = client.get("/api/results/download", base_url=HTTPS_ROOT, query_string=query)
+    assert download.status_code == 200
+    rows = list(csv.DictReader(io.StringIO(download.get_data(as_text=True))))
+    assert [row["word"] for row in rows] == words
+    assert all(1 <= float(row["pred"]) <= 4.5 for row in rows)
 
 
 def test_anonymous_cookie_csrf_virtual_paths_and_allowlist(hosted_app):
